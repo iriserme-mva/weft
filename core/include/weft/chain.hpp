@@ -1,0 +1,109 @@
+#pragma once
+#include <functional>
+#include <string>
+#include <vector>
+
+#include "weft/param.hpp"
+
+namespace weft {
+
+// One plugin slot in the chain.
+struct SlotConfig {
+    std::string id;             // unique within the chain (also used in OSC addr)
+    std::string pluginPath;     // path to .vst3 / .vst
+    std::string pluginId;       // optional VST3 class id / VST2 factory id (disambiguation)
+    bool enabled = true;
+    // Param name -> normalized value (0..1). Missing params keep plugin defaults.
+    std::vector<std::pair<std::string, float>> params;
+
+    float paramValue(const std::string& name, float fallback = 0.f) const {
+        for (const auto& kv : params)
+            if (kv.first == name) return kv.second;
+        return fallback;
+    }
+    bool hasParam(const std::string& name) const {
+        for (const auto& kv : params)
+            if (kv.first == name) return true;
+        return false;
+    }
+};
+
+struct ChainConfig {
+    int sampleRate = 44100;
+    int blockSize = 512;
+    std::vector<SlotConfig> slots;
+};
+
+// Backend: implemented by the JUCE host (real plugins) or the CLI (offline
+// plugins / dummy). The core never touches plugin SDKs directly.
+class IPluginBackend {
+public:
+    virtual ~IPluginBackend() = default;
+
+    // Load slot, enumerate all params into outParams (normalized defaults from
+    // the plugin), then apply cfg.params on top. Returns false on load failure.
+    virtual bool load(const SlotConfig& slot, ParamSet& outParams) = 0;
+
+    // Set a parameter (normalized). Returns false if unknown id.
+    virtual bool setParam(const std::string& slotId, uint32_t id, float normValue) = 0;
+};
+
+// The chain: owns config + per-slot ParamSets, delegates plugin work to the
+// backend, and emits change callbacks (for OSC push / UI update).
+class Chain {
+public:
+    using ChangeCallback = std::function<void(int slotIndex, const Param&)>;
+
+    explicit Chain(IPluginBackend& backend) : backend_(backend) {}
+
+    // Load all slots from cfg and apply configured params. Replaces state.
+    bool load(const ChainConfig& cfg, std::string* err = nullptr);
+
+    // Hot-apply: load missing slots, keep loaded ones, (re)apply all params.
+    bool apply(const ChainConfig& cfg, std::string* err = nullptr);
+
+    void resetToDefaults();
+
+    // Resolve a slot token: numeric index ("0") or slot id ("comp"). -1 if not found.
+    int resolveSlot(const std::string& token) const;
+
+    // Set by param name; returns current value or -1 if not found.
+    float setParam(const std::string& slotToken, const std::string& name, float norm);
+
+    // Set by param id; returns current value or -1 if not found.
+    float setParamById(const std::string& slotToken, uint32_t id, float norm);
+
+    const ParamSet* slot(int slotIndex) const {
+        return (slotIndex >= 0 && slotIndex < (int)sets_.size()) ? &sets_[slotIndex] : nullptr;
+    }
+    const ChainConfig& config() const { return cfg_; }
+    int numSlots() const { return (int)sets_.size(); }
+    std::string slotName(int slotIndex) const {
+        return (slotIndex >= 0 && slotIndex < (int)cfg_.slots.size())
+                   ? cfg_.slots[slotIndex].id : std::string();
+    }
+
+    void onChange(ChangeCallback cb) { changeCb_ = std::move(cb); }
+
+    // Called by the backend when the plugin itself changed a param value
+    // (e.g. user touched the plugin UI, or automation inside the plugin).
+    void onPluginParamChanged(const std::string& slotToken, uint32_t id, float norm) {
+        const int idx = resolveSlot(slotToken);
+        if (idx < 0 || !slot(idx) || !slot(idx)->find(id)) return;
+        // Update the cached surface, then notify.
+        auto* p = sets_[idx].find(id);
+        if (!p) return;
+        const float old = p->value;
+        p->value = Param::clamp01(norm);
+        if (p->value != old && changeCb_)
+            changeCb_(idx, *p);
+    }
+
+private:
+    IPluginBackend& backend_;
+    ChainConfig cfg_;
+    std::vector<ParamSet> sets_;
+    ChangeCallback changeCb_;
+};
+
+}  // namespace weft
