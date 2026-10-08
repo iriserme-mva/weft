@@ -16,13 +16,27 @@ current after every session** — last section first.
 | core: CI (GH Actions, 3-OS) | ✅ green 3/3 |
 | host: JuceBackend (IPluginBackend over JUCE, VST3) | ✅ written, API-verified against JUCE 8.0.4 source |
 | host: test VST3 plugin (WeftSmokePlugin) + smoke CLI | ✅ written (DryMix float 0..1 def 0.8; Mode choice Soft/Hard/Off) |
-| host: CMake (JUCE 8.0.4 sha256-pinned, opt-in WEFT_BUILD_HOST) | ✅ pushed, not yet CI-verified |
-| host: CI (3-OS matrix + smoke param assertions) | 🔨 run 37721075424 red 3/3 (host) — CI-env fixes pushed (MSVC / X11+FT deps / C-language), new run building |
+| host: CMake (JUCE 8.0.4 sha256-pinned, opt-in WEFT_BUILD_HOST) | ✅ pushed; FORMATS VST3 wrapper fix pending CI verification |
+| host: CI (3-OS matrix + smoke param assertions) | 🔨 run 37726704308 red 3/3 (host) — 2 root causes fixed & pushed (FORMATS VST3; VS 18 2026 gen), re-run building |
 | cli/ (offline audio→audio) | ⏸ not started |
 | docs (README/CONFIG/OSC/ARCHITECTURE) | ✅ |
 | logo + name (Weft) | ✅ (assets/logo/) |
 
 ## Log
+
+- **2026-10-08 (4)** — CI run 37726704308: core green 3/3, host red 3/3.
+  Two independent root causes (both source-verified against JUCE 8.0.4 +
+  runner image readme):
+  (1) Linux+macOS: `ninja: unknown target 'weft_smoke_plugin_VST3'` —
+  `juce_add_plugin` parses formats via the NAMED `FORMATS` multi-arg
+  (JUCEUtils.cmake cmake_parse_arguments); our positional `VST3` was
+  dropped, so JUCE_FORMATS was empty and no wrapper target was ever
+  created. Fix: `FORMATS VST3` in host/test_plugin/CMakeLists.txt.
+  (2) Windows: runner image is windows-2025-vs2026 (VS Enterprise 2026,
+  CMake 4.4.3, NO VS 2022) → generator "Visual Studio 17 2022" found no
+  instance. Fix: generator "Visual Studio 18 2026" in ci.yml (CMake ≥4.2).
+  Local core sanity re-green (26/26). Pushed; new run is the source of truth.
+  CI-fix cycle 1/3.
 
 - **2026-10-08 (3)** — CI run 37721075424: core green 3/3, host red 3/3.
   Diagnosed from full job logs (all 3 = CI environment issues, not code):

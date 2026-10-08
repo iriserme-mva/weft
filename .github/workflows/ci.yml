@@ -58,7 +58,9 @@ jobs:
 
       - name: Configure (Windows – MSVC)
         if: runner.os == 'Windows'
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DWEFT_BUILD_HOST=ON
+        # windows-latest is the windows-2025-vs2026 image: ships VS 2026 +
+        # CMake 4.4.x (has the "Visual Studio 18 2026" generator); no VS 2022.
+        run: cmake -S . -B build -G "Visual Studio 18 2026" -A x64 -DWEFT_BUILD_HOST=ON
 
       - name: Configure (Linux / macOS – Ninja)
         if: runner.os != 'Windows'

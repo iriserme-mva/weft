@@ -5,7 +5,7 @@
 # (via FetchContent at the host level) — do NOT call it again here.
 
 juce_add_plugin(weft_smoke_plugin
-    VST3
+    FORMATS VST3
     PRODUCT_NAME "WeftSmokePlugin"
     NAME "WeftSmokePlugin"
     MANUFACTURER "Weft"
