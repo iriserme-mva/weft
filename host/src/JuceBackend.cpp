@@ -97,8 +97,13 @@ bool JuceBackend::loadSlot(const std::string& slotId, const std::string& path,
     outParams = ParamSet{};
 
     const juce::File file(juce::String(path.c_str()));
-    if (!file.existsAsFile()) {
-        if (err) *err = "plugin file not found: " + path;
+    // A VST3 plugin is a bundle *directory* (WeftSmokePlugin.vst3/Contents/…);
+    // a VST2 plugin is a bare file (.so / .dll / .fx). Accept either and let
+    // the format manager below decide which — fileMightContainThisPluginType +
+    // findAllTypesForFile handle the file-vs-bundle distinction. A bare
+    // existsAsFile() would wrongly reject every VST3 bundle.
+    if (!file.exists()) {
+        if (err) *err = "plugin not found: " + path;
         return false;
     }
 
