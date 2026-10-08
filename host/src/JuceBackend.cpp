@@ -10,6 +10,15 @@ namespace weft {
 
 namespace {
 
+// Parse a JUCE parameter identifier into a 32-bit param id. JUCE's VST3 host
+// exposes the raw Vst::ParamID (a uint32) as a *decimal* string, so this
+// round-trips exactly. Non-numeric identifiers fall back to the slot index.
+uint32_t paramIdFromJuce(const juce::String& id, uint32_t fallbackId) {
+    if (id.isNotEmpty() && id.containsOnly("0123456789"))
+        return static_cast<uint32_t>(id.getLargeIntValue());
+    return fallbackId;
+}
+
 // Map a single JUCE parameter onto the weft::Param model.
 weft::Param mapParam(const juce::AudioProcessorParameter* p, uint32_t fallbackId) {
     weft::Param param;
@@ -17,7 +26,7 @@ weft::Param mapParam(const juce::AudioProcessorParameter* p, uint32_t fallbackId
     const auto* hosted =
         dynamic_cast<const juce::HostedAudioProcessorParameter*>(p);
     if (hosted != nullptr)
-        param.id = static_cast<uint32_t>(hosted->getParameterID().toInteger64());
+        param.id = paramIdFromJuce(hosted->getParameterID(), fallbackId);
     else
         param.id = fallbackId;
 
@@ -29,8 +38,9 @@ weft::Param mapParam(const juce::AudioProcessorParameter* p, uint32_t fallbackId
 
     const auto* ranged = dynamic_cast<const juce::RangedAudioParameter*>(p);
     if (ranged != nullptr) {
-        param.minValue = ranged->getMinValue();
-        param.maxValue = ranged->getMaxValue();
+        const juce::NormalisableRange<float> range = ranged->getNormalisableRange();
+        param.minValue = range.start;
+        param.maxValue = range.end;
     } else {
         param.minValue = 0.f;
         param.maxValue = 1.f;
@@ -86,7 +96,7 @@ bool JuceBackend::loadSlot(const std::string& slotId, const std::string& path,
                            ParamSet& outParams, std::string* err) {
     outParams = ParamSet{};
 
-    auto file = juce::File::fromString(juce::String(path.c_str()));
+    const juce::File file(juce::String(path));
     if (!file.existsAsFile()) {
         if (err) *err = "plugin file not found: " + path;
         return false;
@@ -98,7 +108,7 @@ bool JuceBackend::loadSlot(const std::string& slotId, const std::string& path,
     juce::AudioPluginFormat* format = nullptr;
     for (int i = 0; i < mgr.getNumFormats(); ++i) {
         auto* f = mgr.getFormat(i);
-        if (f != nullptr && f->fileMightContainThisPluginType(file)) {
+        if (f != nullptr && f->fileMightContainThisPluginType(file.getFullPathName())) {
             format = f;
             break;
         }
@@ -109,13 +119,13 @@ bool JuceBackend::loadSlot(const std::string& slotId, const std::string& path,
     }
 
     juce::OwnedArray<juce::PluginDescription> descs;
-    format->findAllTypesForFile(descs, file);
+    format->findAllTypesForFile(descs, file.getFullPathName());
     if (descs.size() == 0) {
         if (err) *err = "no plugin types found in: " + path;
         return false;
     }
 
-    const auto& desc = descs[0];
+    const juce::PluginDescription& desc = *descs[0];
     juce::String errStr;
     auto instance =
         mgr.createPluginInstance(desc, 44100.0, 512, errStr);
@@ -154,7 +164,7 @@ bool JuceBackend::setParam(const std::string& slotId, uint32_t id,
             const auto* hosted =
                 dynamic_cast<const juce::HostedAudioProcessorParameter*>(params[i]);
             if (hosted != nullptr &&
-                static_cast<uint32_t>(hosted->getParameterID().toInteger64()) == id) {
+                paramIdFromJuce(hosted->getParameterID(), 0) == id) {
                 const_cast<juce::AudioProcessorParameter*>(params[i])
                     ->setValueNotifyingHost(normValue);
                 return true;

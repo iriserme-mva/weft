@@ -28,6 +28,10 @@ target_link_libraries(weft_smoke
         juce::juce_audio_processors
         juce::juce_audio_plugin_client
 )
+# Headless host: disable the web browser so the juce_gui_extra module sources
+# (compiled into this target) don't drag in GTK (Linux/BSD) or WebKit (macOS).
+# Matches the way JUCE's own AudioPluginHost is configured.
+target_compile_definitions(weft_smoke PRIVATE JUCE_WEB_BROWSER=0)
 if(WIN32)
     target_link_libraries(weft_smoke PRIVATE ws2_32 winmm)
 endif()

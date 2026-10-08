@@ -24,8 +24,13 @@ public:
         return new SmokeProcessor();
     }
 
+    const juce::String getName() const override { return "WeftSmokePlugin"; }
+
     void prepareToPlay(double sampleRate, int samplesPerBlock) override {
-        dryMix = dryMixParameter->getDefaultValue();
+        // The param is constructed at its default, so the current (normalized)
+        // value IS the default. Read getValue() rather than the private
+        // AudioParameterFloat::getDefaultValue() override.
+        dryMix = dryMixParameter->getValue();
         juce::ignoreUnused(sampleRate, samplesPerBlock);
     }
 
@@ -33,23 +38,25 @@ public:
 
     void processBlock(juce::AudioBuffer<float>& buffer,
                       juce::MidiBuffer&) override {
-        if (dryMix < 1.0001f) {
-            const float gain = dryMix;
-            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-                buffer.applyGain(ch, gain);
-        }
+        if (dryMix < 1.0001f)
+            buffer.applyGain(dryMix);  // all channels at once
     }
 
     bool hasEditor() const override { return false; }
     juce::AudioProcessorEditor* createEditor() override { return nullptr; }
     bool isMidiEffect() const override { return false; }
-    double getLatencySamples() const override { return 0.0; }
+    bool acceptsMidi() const override { return false; }
+    bool producesMidi() const override { return false; }
+    double getTailLengthSeconds() const override { return 0.0; }
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
     void setCurrentProgram(int) override {}
-    const char* getProgramName(int) override { return ""; }
+    const juce::String getProgramName(int) override { return {}; }
     void changeProgramName(int, const juce::String&) override {}
+
+    void getStateInformation(juce::MemoryBlock&) override {}
+    void setStateInformation(const void*, int) override {}
 
 private:
     std::unique_ptr<juce::AudioParameterFloat> dryMixParameter;

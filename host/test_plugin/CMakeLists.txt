@@ -19,6 +19,11 @@ juce_add_plugin(weft_smoke_plugin
 target_sources(weft_smoke_plugin PRIVATE plugin.cpp)
 target_link_libraries(weft_smoke_plugin PRIVATE juce::juce_audio_processors)
 
+# Headless host: disable the web browser so the juce_gui_extra module sources
+# (compiled into this target) don't drag in GTK (Linux/BSD) or WebKit (macOS).
+# Matches the way JUCE's own AudioPluginHost is configured.
+target_compile_definitions(weft_smoke_plugin PRIVATE JUCE_WEB_BROWSER=0)
+
 # Must come AFTER juce_add_plugin: it writes into the target's generated
 # sources dir. Produces JuceHeader.h (module includes + JucePlugin_CreateInstance).
 juce_generate_juce_header(weft_smoke_plugin)

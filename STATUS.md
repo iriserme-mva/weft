@@ -17,12 +17,42 @@ current after every session** — last section first.
 | host: JuceBackend (IPluginBackend over JUCE, VST3) | ✅ written, API-verified against JUCE 8.0.4 source |
 | host: test VST3 plugin (WeftSmokePlugin) + smoke CLI | ✅ written (DryMix float 0..1 def 0.8; Mode choice Soft/Hard/Off) |
 | host: CMake (JUCE 8.0.4 sha256-pinned, opt-in WEFT_BUILD_HOST) | ✅ pushed; FORMATS VST3 wrapper fix pending CI verification |
-| host: CI (3-OS matrix + smoke param assertions) | 🔨 run 37726704308 red 3/3 (host) — 2 root causes fixed & pushed (FORMATS VST3; VS 18 2026 gen), re-run building |
+| host: CI (3-OS matrix + smoke param assertions) | 🔨 run 37727941884 red 3/3 (C++ layer) — all compiler errors fixed + pushed (API fixes + JUCE_WEB_BROWSER=0), re-run building |
 | cli/ (offline audio→audio) | ⏸ not started |
 | docs (README/CONFIG/OSC/ARCHITECTURE) | ✅ |
 | logo + name (Weft) | ✅ (assets/logo/) |
 
 ## Log
+
+- **2026-10-08 (5)** — CI run 37727941884 (from `1d0849d`): host still red 3/3,
+  but now at the C++ layer. Parsed the exact compiler errors from all three job
+  logs and fixed each against the JUCE 8.0.4 source:
+  - plugin.cpp (Linux/macOS, abstract-class + 4 errors): added the 6 missing
+    pure-virtual overrides (getName, getTailLengthSeconds, acceptsMidi,
+    producesMidi, getStateInformation, setStateInformation); removed the
+    `getLatencySamples` override (not virtual in JUCE 8); getProgramName now
+    returns `const String`; prepareToPlay reads getValue() instead of the
+    private AudioParameterFloat::getDefaultValue(); processBlock uses the
+    1-arg all-channels applyGain(gain) (2-arg overload doesn't exist).
+  - JuceBackend.cpp (Windows, 6 errors): String::toInteger64 → new
+    paramIdFromJuce() helper (getLargeIntValue, decimal VST3 ids);
+    RangedAudioParameter getMin/MaxValue → getNormalisableRange().start/.end;
+    File::fromString → File(String) ctor; fileMightContainThisPluginType /
+    findAllTypesForFile take a String → pass getFullPathName();
+    createPluginInstance(desc,…) — descs[0] is a pointer, dereferenced to a
+    `const PluginDescription&`.
+  - smoke.cpp: initialiseJuce_GUI is declared in juce_events — added the
+    include (it was a compile error, not a link error; juce_events was already
+    linked via juce_audio_processors).
+  - CMake (Linux/macOS gtk/gtk.h + macOS WebKit): JUCE_WEB_BROWSER defaults to
+    1 and the juce_gui_extra module .cpp files compile INTO our targets, so
+    `JUCE_WEB_BROWSER=0` is set on both weft_smoke and weft_smoke_plugin
+    (exactly how JUCE's own AudioPluginHost does it). No JUCE_VIDEO setting
+    exists in 8.0.4 — web browser is the only gate for the GTK/WebKit blocks.
+  - Note: `juce::AudioBuffer<float>` is still the type name in 8.0.4
+    (AudioSampleBuffer is a newer internal rename; the Linux error itself named
+    juce::AudioBuffer<float> and only complained about the applyGain call).
+  Pushed; next CI run is the source of truth. CI-fix cycle 2/3.
 
 - **2026-10-08 (4)** — CI run 37726704308: core green 3/3, host red 3/3.
   Two independent root causes (both source-verified against JUCE 8.0.4 +
