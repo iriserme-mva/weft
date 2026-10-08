@@ -1,4 +1,4 @@
-name: core
+name: weft
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  core:
     strategy:
       fail-fast: false
       matrix:
@@ -26,3 +26,65 @@ jobs:
       - name: Test
         working-directory: build
         run: ctest --output-on-failure
+
+  host:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ALSA (JUCE audio backend on Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev
+
+      - name: Configure (host layer ON)
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DWEFT_BUILD_HOST=ON
+
+      - name: Build
+        run: cmake --build build --target weft_smoke weft_smoke_plugin_VST3 -v
+
+      - name: Locate built VST3 plugin
+        id: loc
+        shell: bash
+        run: |
+          # Plugin output layout (see _juce_configure_bundle):
+          #   win:  build/PlugIns/*_artefacts/Release/VST3/<Product>.vst3 (dir)
+          #   lin:  build/PlugIns/*_artefacts/VST3/<Product>.vst3 (dir)
+          #   mac:  build/PlugIns/*_artefacts/VST3/<Product>.vst3/Contents/Resources/moduleinfo.json
+          find build \( -name 'moduleinfo.json' -o -name 'WeftSmokePlugin.vst3' \) > plugin_hits.txt
+          if [ ! -s plugin_hits.txt ]; then
+            echo "::error::no VST3 plugin artefact found under build/"
+            exit 1
+          fi
+          hit=$(head -n1 plugin_hits.txt)
+          if [ -d "$hit" ]; then
+            vst3="$hit"                                   # win/linux: .vst3 is the bundle dir
+          else
+            vst3=$(cd "$hit/../../.." && pwd)             # mac: moduleinfo.json -> up 3 = bundle
+          fi
+          [ -d "$vst3" ] || { echo "::error::plugin dir missing: $vst3"; exit 1; }
+          echo "path=$vst3" >> "$GITHUB_OUTPUT"
+          echo "plugin at: $vst3"
+
+      - name: Smoke (load plugin, dump params, expect 2 params)
+        shell: bash
+        run: |
+          smoke=$(find build -maxdepth 1 -name 'weft_smoke*' -type f | head -n1)
+          [ -x "$smoke" ] || { echo "::error::smoke binary not found"; exit 1; }
+          "$smoke" "${{ steps.loc.outputs.path }}" > smoke_out.json
+          cat smoke_out.json
+          python3 - <<'EOF'
+          import json
+          d = json.load(open("smoke_out.json"))
+          assert d["pluginName"] == "WeftSmokePlugin", d["pluginName"]
+          names = {p["title"] for p in d["params"]}
+          assert names == {"DryMix", "Mode"}, names
+          dm = next(p for p in d["params"] if p["title"] == "DryMix")
+          md = next(p for p in d["params"] if p["title"] == "Mode")
+          assert dm["stepCount"] == 0 and dm["defaultValue"] == 0.8, dm
+          assert md["stepCount"] == 3 and md["listItems"] == ["Soft", "Hard", "Off"], md
+          print("SMOKE OK")
+          EOF

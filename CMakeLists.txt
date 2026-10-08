@@ -33,3 +33,9 @@ add_executable(weft_core_tests
 target_link_libraries(weft_core_tests PRIVATE weft_core)
 target_include_directories(weft_core_tests PRIVATE third_party/doctest)
 add_test(NAME weft_core_tests COMMAND weft_core_tests)
+
+# ---- JUCE host layer (opt-in) ----------------------------------------------
+option(WEFT_BUILD_HOST "Build the JUCE host layer (VST3 plugin + smoke CLI)" OFF)
+if(WEFT_BUILD_HOST)
+  add_subdirectory(host)
+endif()
