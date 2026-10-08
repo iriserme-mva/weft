@@ -1,0 +1,33 @@
+# JUCE host layer (opt-in: -DWEFT_BUILD_HOST=ON)
+#
+# Fetches JUCE 8.0.4 (pinned by SHA256), builds the test VST3 plugin and
+# the weft_smoke CLI (JuceBackend + weft_core). Core-only builds never
+# touch JUCE, so the CI core job stays light.
+
+include(FetchContent)
+FetchContent_Declare(juce
+    URL https://github.com/juce-framework/JUCE/archive/refs/tags/8.0.4.tar.gz
+    URL_HASH SHA256=0effe9823a6fd8a4f98e5c08be7d308350e417b2d15dcf34011e778fefbbf005)
+FetchContent_MakeAvailable(juce)
+
+# JUCE's top-level CMakeLists already calls juce_add_modules(ALIAS_NAMESPACE juce)
+# — do not call it again.
+
+add_subdirectory(test_plugin)
+
+# ---- smoke CLI -------------------------------------------------------------
+add_executable(weft_smoke
+    src/smoke.cpp
+    src/JuceBackend.cpp
+)
+target_link_libraries(weft_smoke
+    PRIVATE
+        weft_core
+        juce::juce_core
+        juce::juce_events
+        juce::juce_audio_processors
+        juce::juce_audio_plugin_client
+)
+if(WIN32)
+    target_link_libraries(weft_smoke PRIVATE ws2_32 winmm)
+endif()
