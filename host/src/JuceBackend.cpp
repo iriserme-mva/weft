@@ -1,0 +1,201 @@
+#include "JuceBackend.hpp"
+
+#include <algorithm>
+#include <cstring>
+#include <utility>
+
+#include <juce_audio_processors/juce_audio_processors.h>
+
+namespace weft {
+
+namespace {
+
+// Map a single JUCE parameter onto the weft::Param model.
+weft::Param mapParam(const juce::AudioProcessorParameter* p, uint32_t fallbackId) {
+    weft::Param param;
+
+    const auto* hosted =
+        dynamic_cast<const juce::HostedAudioProcessorParameter*>(p);
+    if (hosted != nullptr)
+        param.id = static_cast<uint32_t>(hosted->getParameterID().toInteger64());
+    else
+        param.id = fallbackId;
+
+    param.title = p->getName(128).toStdString();
+    param.units = p->getLabel().toStdString();
+    param.defaultValue = p->getDefaultValue();
+    param.value = p->getValue();
+    param.automatable = p->isAutomatable();
+
+    const auto* ranged = dynamic_cast<const juce::RangedAudioParameter*>(p);
+    if (ranged != nullptr) {
+        param.minValue = ranged->getMinValue();
+        param.maxValue = ranged->getMaxValue();
+    } else {
+        param.minValue = 0.f;
+        param.maxValue = 1.f;
+    }
+
+    // Discrete vs continuous. JUCE 8's VST3 host reports
+    // getNumSteps() == getDefaultNumParameterSteps() for continuous params
+    // and stepCount+1 for discrete ones; isDiscrete() normalizes that.
+    const int steps = p->getNumSteps();
+    if (p->isDiscrete() && steps > 1) {
+        param.stepCount = steps;
+        // Labels for discrete params. For raw VST3 this is usually empty
+        // (VST3 carries no value strings), but JUCE-native hosted params
+        // (e.g. our AudioParameterChoice smoke plugin) expose them.
+        std::vector<std::string> items;
+        const juce::StringArray sa = p->getAllValueStrings();
+        for (int i = 0; i < sa.size(); ++i)
+            items.push_back(sa[i].toStdString());
+        if (!items.empty()) {
+            param.listItems = std::move(items);
+            param.kind = weft::ParamKind::Enum;
+        } else {
+            param.kind = weft::ParamKind::Float;  // stepped float, no labels
+        }
+    } else {
+        param.stepCount = 0;
+        param.kind = weft::ParamKind::Float;
+    }
+
+    return param;
+}
+
+}  // namespace
+
+JuceBackend::JuceBackend() = default;
+JuceBackend::~JuceBackend() = default;
+
+bool JuceBackend::load(const SlotConfig& slot, ParamSet& outParams) {
+    std::string err;
+    if (!loadSlot(slot.id, slot.pluginPath, outParams, &err))
+        return false;
+
+    // Apply configured param values (by name) on top of plugin defaults.
+    for (const auto& kv : slot.params) {
+        weft::Param* p = outParams.findByName(kv.first);
+        if (p != nullptr)
+            p->value = weft::Param::clamp01(kv.second);
+    }
+    return true;
+}
+
+bool JuceBackend::loadSlot(const std::string& slotId, const std::string& path,
+                           ParamSet& outParams, std::string* err) {
+    outParams = ParamSet{};
+
+    auto file = juce::File::fromString(juce::String(path.c_str()));
+    if (!file.existsAsFile()) {
+        if (err) *err = "plugin file not found: " + path;
+        return false;
+    }
+
+    juce::AudioPluginFormatManager mgr;
+    mgr.addDefaultFormats();
+
+    juce::AudioPluginFormat* format = nullptr;
+    for (int i = 0; i < mgr.getNumFormats(); ++i) {
+        auto* f = mgr.getFormat(i);
+        if (f != nullptr && f->fileMightContainThisPluginType(file)) {
+            format = f;
+            break;
+        }
+    }
+    if (format == nullptr) {
+        if (err) *err = "no plugin format can load: " + path;
+        return false;
+    }
+
+    juce::OwnedArray<juce::PluginDescription> descs;
+    format->findAllTypesForFile(descs, file);
+    if (descs.size() == 0) {
+        if (err) *err = "no plugin types found in: " + path;
+        return false;
+    }
+
+    const auto& desc = descs[0];
+    juce::String errStr;
+    auto instance =
+        mgr.createPluginInstance(desc, 44100.0, 512, errStr);
+    if (instance == nullptr) {
+        if (err) *err = "failed to create plugin instance: " + errStr.toStdString();
+        return false;
+    }
+
+    instance->prepareToPlay(44100.0, 512);
+
+    outParams.pluginId = slotId;
+    outParams.pluginName = instance->getName().toStdString();
+    outParams.loadedPath = path;
+
+    const auto* params = instance->getParameters().data();
+    const int n = instance->getParameters().size();
+    for (int i = 0; i < n; ++i)
+        outParams.params.push_back(mapParam(params[i], static_cast<uint32_t>(i)));
+
+    if (outParams.params.empty()) {
+        if (err) *err = "plugin has no parameters: " + path;
+        return false;
+    }
+
+    slots_.push_back({slotId, path, std::move(instance)});
+    return true;
+}
+
+bool JuceBackend::setParam(const std::string& slotId, uint32_t id,
+                           float normValue) {
+    for (auto& slot : slots_) {
+        if (slot.id != slotId || slot.instance == nullptr)
+            continue;
+        const auto& params = slot.instance->getParameters();
+        for (int i = 0; i < params.size(); ++i) {
+            const auto* hosted =
+                dynamic_cast<const juce::HostedAudioProcessorParameter*>(params[i]);
+            if (hosted != nullptr &&
+                static_cast<uint32_t>(hosted->getParameterID().toInteger64()) == id) {
+                const_cast<juce::AudioProcessorParameter*>(params[i])
+                    ->setValueNotifyingHost(normValue);
+                return true;
+            }
+        }
+        return false;  // slot found but param id unknown
+    }
+    return false;  // slot not found
+}
+
+int JuceBackend::process(const std::string& slotId, const float* in, float* out,
+                         int channels, int frames) {
+    for (auto& slot : slots_) {
+        if (slot.id != slotId || slot.instance == nullptr)
+            continue;
+
+        auto& inst = *slot.instance;
+        const int inCh = std::max(1, inst.getTotalNumInputChannels());
+        const int outCh = std::max(1, inst.getTotalNumOutputChannels());
+        const int width = std::max(inCh, outCh);
+
+        juce::AudioBuffer<float> buf(width, frames);
+        for (int ch = 0; ch < inCh; ++ch)
+            std::memcpy(buf.getWritePointer(ch), in + (size_t)ch * frames,
+                        (size_t)frames * sizeof(float));
+        for (int ch = inCh; ch < width; ++ch)
+            buf.clear(ch, 0, frames);
+
+        juce::MidiBuffer midi;
+        inst.processBlock(buf, midi);
+
+        for (int ch = 0; ch < outCh; ++ch)
+            std::memcpy(out + (size_t)ch * frames, buf.getReadPointer(ch),
+                        (size_t)frames * sizeof(float));
+        return frames;
+    }
+    return -1;
+}
+
+int JuceBackend::numLoadedSlots() const {
+    return static_cast<int>(slots_.size());
+}
+
+}  // namespace weft

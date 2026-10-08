@@ -1,0 +1,59 @@
+#pragma once
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "weft/chain.hpp"
+#include "weft/param.hpp"
+
+namespace juce {
+class AudioPluginInstance;
+}
+
+namespace weft {
+
+// JUCE-backed implementation of weft::IPluginBackend.
+//
+// Loads VST3 plugin instances (the only format enabled in this build —
+// see JUCE_PLUGINHOST_VST3) and maps their parameter surface onto the
+// platform-agnostic weft::Param / weft::ParamSet model. Normalized
+// 0..1 space is used everywhere, matching the core library.
+//
+// All JUCE calls here happen on the calling thread, which main() makes
+// the JUCE message thread via juce::initialiseJuce_GUI().
+class JuceBackend : public IPluginBackend {
+public:
+    JuceBackend();
+    ~JuceBackend() override;
+
+    // IPluginBackend
+    bool load(const SlotConfig& slot, ParamSet& outParams) override;
+    bool setParam(const std::string& slotId, uint32_t id, float normValue) override;
+
+    // Load a plugin by file path (convenience for the smoke CLI / tests).
+    // Populates outParams with the full param surface; returns false (and
+    // fills err) if the plugin could not be loaded or has no parameters.
+    bool loadSlot(const std::string& slotId, const std::string& path,
+                  ParamSet& outParams, std::string* err = nullptr);
+
+    // Push one block through the slot's plugin.
+    //   in:  input, float32, interleaved, [channel][frame]
+    //   out: output, float32, interleaved, [channel][frame]
+    // Returns the number of frames processed, or -1 on error.
+    int process(const std::string& slotId, const float* in, float* out,
+                int channels, int frames);
+
+    int numLoadedSlots() const;
+
+private:
+    struct Slot {
+        std::string id;
+        std::string path;
+        std::unique_ptr<juce::AudioPluginInstance> instance;
+    };
+
+    std::vector<Slot> slots_;
+};
+
+}  // namespace weft
