@@ -35,6 +35,11 @@ target_compile_definitions(weft_smoke PRIVATE JUCE_WEB_BROWSER=0)
 # No networking: JUCE_USE_CURL defaults to 1 and #includes <curl/curl.h> on
 # Linux/BSD, where CI runners lack libcurl dev headers. See test_plugin.
 target_compile_definitions(weft_smoke PRIVATE JUCE_USE_CURL=0)
+# VST3 hosting: the AudioPluginFormatManager only registers the VST3 format
+# when JUCE_PLUGINHOST_VST3=1 (per-target, like JUCE_USE_CURL). Without it
+# the manager has zero formats and load() fails with "no plugin format can
+# load this file". JUCE's own AudioPluginHost is configured this way.
+target_compile_definitions(weft_smoke PRIVATE JUCE_PLUGINHOST_VST3=1)
 if(WIN32)
     target_link_libraries(weft_smoke PRIVATE ws2_32 winmm)
 endif()
