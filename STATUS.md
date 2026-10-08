@@ -17,13 +17,34 @@ current after every session** — last section first.
 | host: JuceBackend (IPluginBackend over JUCE, VST3) | ✅ written, API-verified against JUCE 8.0.4 source |
 | host: test VST3 plugin (WeftSmokePlugin) + smoke CLI | ✅ written (DryMix float 0..1 def 0.8; Mode choice Soft/Hard/Off) |
 | host: CMake (JUCE 8.0.4 sha256-pinned, opt-in WEFT_BUILD_HOST) | ✅ pushed; FORMATS VST3 wrapper fix pending CI verification |
-| host: CI (3-OS matrix + smoke param assertions) | 🔨 run 37810148573 (from `a7d2748`) RED — curl + VST3-helper fixes **worked** (all 3 OSes compile, link, package the .vst3 bundle); new failure = smoke host bug: `existsAsFile()` rejected the VST3 *bundle directory*. Fixed in `00769c9`; awaiting re-run |
+| host: CI (3-OS matrix + smoke param assertions) | 🔨 run 37853305618 (from `1b22ca3`) RUNNING — prior failure root cause **confirmed from CI log**: smoke host missing `JUCE_PLUGINHOST_VST3=1` → format manager had zero formats → `no plugin format can load: …/WeftSmokePlugin.vst3`. Fixed in `1b22ca3`; awaiting re-run |
 | cli/ (offline audio→audio) | ⏸ not started |
 | docs (README/CONFIG/OSC/ARCHITECTURE) | ✅ |
 | logo + name (Weft) | ✅ (assets/logo/) |
 
 ## Log
 
+- **2026-10-09 (9)** — CI run 37845591328 (from `00769c9`): `00769c9` **worked**
+  — the old `plugin file not found` error is gone, the format-manager slow path
+  now runs, and all 3 OSes still build/link/package cleanly (build 47/47, smoke
+  binary linked, .vst3 bundle present). Failure advanced one stage deeper, to
+  the format manager itself, which printed
+  `error: no plugin format can load: …/WeftSmokePlugin.vst3`.
+  **Root cause confirmed from the Linux CI log (job 113545530340):** the
+  `weft_smoke` compile flags carried `-DJUCE_USE_CURL=0 -DJUCE_WEB_BROWSER=0`
+  but **no** `-DJUCE_PLUGINHOST_VST3=1`. The `AudioPluginFormatManager`
+  registers `VST3PluginFormat` only when that per-target define is set, so the
+  smoke host had zero formats and load() failed. Fix (`1b22ca3`): add
+  `JUCE_PLUGINHOST_VST3=1` to `weft_smoke`'s `target_compile_definitions`,
+  exactly matching JUCE's own AudioPluginHost. Link-safety verified against the
+  JUCE 8.0.4 tree: `_juce_module_sources` compiles only the top-level module TU
+  (`juce_audio_processors.cpp`), which `#include`s
+  `format_types/juce_VST3PluginFormat.cpp` (line 216); that TU pulls in the VST3
+  SDK base sources transitively under `JUCE_PLUGINHOST_VST3`. JUCE's shipping
+  `AudioPluginHost` example links with only this define + the module (no
+  explicit SDK base sources), proving the module system handles the SDK
+  transparently — so `weft_smoke`, which links the same `juce_audio_processors`
+  module, links identically. Re-run triggered as `37853305618`.
 - **2026-10-08 (8)** — CI run 37810148573 (from `a7d2748`): the two packaging
   fixes from (7) **both worked** — all 3 OSes now compile, link, and package
   the complete VST3 bundle (build reached 47/47; the `moduleinfo.json`-removal
