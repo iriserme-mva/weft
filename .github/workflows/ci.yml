@@ -36,14 +36,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install ALSA (JUCE audio backend on Linux)
+      - name: Install build deps (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            libasound2-dev \
+            libfreetype-dev \
+            libfontconfig1-dev \
+            libx11-dev \
+            libxext-dev \
+            libxrender-dev \
+            libx11-xcb-dev \
+            libxkbcommon-dev \
+            libgl1-mesa-dev \
+            libxcomposite-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxrandr-dev
 
-      - name: Configure (host layer ON)
+      - name: Configure (Windows – MSVC)
+        if: runner.os == 'Windows'
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DWEFT_BUILD_HOST=ON
+
+      - name: Configure (Linux / macOS – Ninja)
+        if: runner.os != 'Windows'
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DWEFT_BUILD_HOST=ON
 
-      - name: Build
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        run: cmake --build build --config Release --target weft_smoke weft_smoke_plugin_VST3 --verbose
+
+      - name: Build (Linux / macOS)
+        if: runner.os != 'Windows'
         run: cmake --build build --target weft_smoke weft_smoke_plugin_VST3 -v
 
       - name: Locate built VST3 plugin
@@ -51,9 +77,9 @@ jobs:
         shell: bash
         run: |
           # Plugin output layout (see _juce_configure_bundle):
-          #   win:  build/PlugIns/*_artefacts/Release/VST3/<Product>.vst3 (dir)
-          #   lin:  build/PlugIns/*_artefacts/VST3/<Product>.vst3 (dir)
-          #   mac:  build/PlugIns/*_artefacts/VST3/<Product>.vst3/Contents/Resources/moduleinfo.json
+          #   win (VS gen): build/PlugIns/*_artefacts/Release/VST3/<Product>.vst3 (dir)
+          #   lin:          build/PlugIns/*_artefacts/VST3/<Product>.vst3 (dir)
+          #   mac:          build/PlugIns/*_artefacts/VST3/<Product>.vst3/Contents/Resources/moduleinfo.json
           find build \( -name 'moduleinfo.json' -o -name 'WeftSmokePlugin.vst3' \) > plugin_hits.txt
           if [ ! -s plugin_hits.txt ]; then
             echo "::error::no VST3 plugin artefact found under build/"
@@ -72,8 +98,11 @@ jobs:
       - name: Smoke (load plugin, dump params, expect 2 params)
         shell: bash
         run: |
-          smoke=$(find build -maxdepth 1 -name 'weft_smoke*' -type f | head -n1)
-          [ -x "$smoke" ] || { echo "::error::smoke binary not found"; exit 1; }
+          # Binary layout:
+          #   win (VS gen): build/Release/weft_smoke.exe
+          #   lin/mac:      build/weft_smoke
+          smoke=$(find build -name 'weft_smoke' -o -name 'weft_smoke.exe' | head -n1)
+          [ -n "$smoke" ] && [ -x "$smoke" ] || { echo "::error::smoke binary not found"; exit 1; }
           "$smoke" "${{ steps.loc.outputs.path }}" > smoke_out.json
           cat smoke_out.json
           python3 - <<'EOF'
