@@ -18,6 +18,8 @@
 #  include <arpa/inet.h>
 #  include <netdb.h>
 #  include <unistd.h>
+#  include <fcntl.h>
+#  include <errno.h>
 #  define SOCKET_TYPE int
 #  define SOCKET_VALID(s) ((s) >= 0)
 #  define SOCKET_CLOSE(s) (::close(s))
