@@ -17,12 +17,30 @@ current after every session** — last section first.
 | host: JuceBackend (IPluginBackend over JUCE, VST3) | ✅ written, API-verified against JUCE 8.0.4 source |
 | host: test VST3 plugin (WeftSmokePlugin) + smoke CLI | ✅ written (DryMix float 0..1 def 0.8; Mode choice Soft/Hard/Off) |
 | host: CMake (JUCE 8.0.4 sha256-pinned, opt-in WEFT_BUILD_HOST) | ✅ pushed; FORMATS VST3 wrapper fix pending CI verification |
-| host: CI (3-OS matrix + smoke param assertions) | 🔨 run 37780116943 red 3/3 — 2 prior C++ errors fixed (compiles + links on all 3); 2 new packaging errors (curl header, VST3 helper crash) both fixed; awaiting re-run |
+| host: CI (3-OS matrix + smoke param assertions) | 🔨 run 37810148573 (from `a7d2748`) RED — curl + VST3-helper fixes **worked** (all 3 OSes compile, link, package the .vst3 bundle); new failure = smoke host bug: `existsAsFile()` rejected the VST3 *bundle directory*. Fixed in `00769c9`; awaiting re-run |
 | cli/ (offline audio→audio) | ⏸ not started |
 | docs (README/CONFIG/OSC/ARCHITECTURE) | ✅ |
 | logo + name (Weft) | ✅ (assets/logo/) |
 
 ## Log
+
+- **2026-10-08 (8)** — CI run 37810148573 (from `a7d2748`): the two packaging
+  fixes from (7) **both worked** — all 3 OSes now compile, link, and package
+  the complete VST3 bundle (build reached 47/47; the `moduleinfo.json`-removal
+  step ran; the CI shell confirmed the bundle *directory* exists on disk).
+  Failure advanced to the smoke test, which printed
+  `error: plugin file not found: …/WeftSmokePlugin.vst3` — despite the bundle
+  dir being present. Root cause = a bug in my smoke host, not the packaging:
+  `JuceBackend::loadSlot` gated on `file.existsAsFile()`, but a VST3 plugin is
+  a bundle *directory* (`WeftSmokePlugin.vst3/Contents/…`), so `existsAsFile()`
+  is false and the load bailed before reaching the format manager. Fix
+  (`00769c9`): accept file **or** directory via `file.exists()`, then let the
+  format manager decide. Verified against JUCE 8.0.4 source that the whole
+  directory-bundle chain works: `fileMightContainThisPluginType`
+  (juce_VST3PluginFormat.cpp:4217) = `hasFileExtension(".vst3") && f.exists()`
+  → true for a dir; `findAllTypesForFile` (4095) fast-path empty (no
+  moduleinfo.json) → `findDescriptionsSlow` (4128); `createVST3Instance`
+  (4153) same gate → true. CI-fix cycle 5.
 
 - **2026-10-08 (7)** — CI run 37780116943 (from `3a1745c`): both prior C++
   errors (String ctor, private getValue) are **fixed** — all 3 OSes now compile
