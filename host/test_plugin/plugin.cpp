@@ -28,9 +28,9 @@ public:
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override {
         // The param is constructed at its default, so the current (normalized)
-        // value IS the default. Read getValue() rather than the private
-        // AudioParameterFloat::getDefaultValue() override.
-        dryMix = dryMixParameter->getValue();
+        // value IS the default. Use the public get() accessor — getValue() and
+        // getDefaultValue() are private in JUCE 8.
+        dryMix = dryMixParameter->get();
         juce::ignoreUnused(sampleRate, samplesPerBlock);
     }
 

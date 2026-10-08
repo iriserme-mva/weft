@@ -17,12 +17,30 @@ current after every session** — last section first.
 | host: JuceBackend (IPluginBackend over JUCE, VST3) | ✅ written, API-verified against JUCE 8.0.4 source |
 | host: test VST3 plugin (WeftSmokePlugin) + smoke CLI | ✅ written (DryMix float 0..1 def 0.8; Mode choice Soft/Hard/Off) |
 | host: CMake (JUCE 8.0.4 sha256-pinned, opt-in WEFT_BUILD_HOST) | ✅ pushed; FORMATS VST3 wrapper fix pending CI verification |
-| host: CI (3-OS matrix + smoke param assertions) | 🔨 run 37727941884 red 3/3 (C++ layer) — all compiler errors fixed + pushed (API fixes + JUCE_WEB_BROWSER=0), re-run building |
+| host: CI (3-OS matrix + smoke param assertions) | 🔨 run 37761767553 red 3/3 (2 distinct errors) — both fixed + pushed; awaiting re-run |
 | cli/ (offline audio→audio) | ⏸ not started |
 | docs (README/CONFIG/OSC/ARCHITECTURE) | ✅ |
 | logo + name (Weft) | ✅ (assets/logo/) |
 
 ## Log
+
+- **2026-10-08 (6)** — CI run 37761767553 (from `67bfd8d`): core green 3/3,
+  host red 3/3 — but down to just **2 distinct errors**, both source-verified
+  against JUCE 8.0.4:
+  - JuceBackend.cpp:99 (Windows C2228 + C2660 cascade): `juce::String(path)`
+    with `path` a `std::string`. JUCE 8 `String` has **no `std::string` ctor**
+    (only `const char*`/`const wchar_t*`/char8_t), so the `File` ctor failed
+    and `file` became an error-type — which is why MSVC then misreported
+    `.existsAsFile` (C2228) and `findAllTypesForFile` as "1 argument" (C2660);
+    the call site itself was correct (2-arg). Fix: `juce::String(path.c_str())`.
+    (Linux/macOS never compiled JuceBackend.cpp because plugin.cpp failed first,
+    so only MSVC surfaced this.)
+  - plugin.cpp:33 (Linux + macOS): `AudioParameterFloat::getValue()` is
+    **private** in JUCE 8; the public accessors are `get()` / `operator float()`.
+    Fix: `dryMixParameter->get()`. (Note: `p->getValue()`/`p->getDefaultValue()`
+    at JuceBackend.cpp:35-36 are the *public* virtuals on the
+    `AudioProcessorParameter*` base pointer and are unaffected.)
+  Pushed; next CI run is the source of truth. CI-fix cycle 3/3.
 
 - **2026-10-08 (5)** — CI run 37727941884 (from `1d0849d`): host still red 3/3,
   but now at the C++ layer. Parsed the exact compiler errors from all three job

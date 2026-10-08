@@ -96,7 +96,7 @@ bool JuceBackend::loadSlot(const std::string& slotId, const std::string& path,
                            ParamSet& outParams, std::string* err) {
     outParams = ParamSet{};
 
-    const juce::File file(juce::String(path));
+    const juce::File file(juce::String(path.c_str()));
     if (!file.existsAsFile()) {
         if (err) *err = "plugin file not found: " + path;
         return false;
