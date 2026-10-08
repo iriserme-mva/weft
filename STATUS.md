@@ -17,12 +17,38 @@ current after every session** — last section first.
 | host: JuceBackend (IPluginBackend over JUCE, VST3) | ✅ written, API-verified against JUCE 8.0.4 source |
 | host: test VST3 plugin (WeftSmokePlugin) + smoke CLI | ✅ written (DryMix float 0..1 def 0.8; Mode choice Soft/Hard/Off) |
 | host: CMake (JUCE 8.0.4 sha256-pinned, opt-in WEFT_BUILD_HOST) | ✅ pushed; FORMATS VST3 wrapper fix pending CI verification |
-| host: CI (3-OS matrix + smoke param assertions) | 🔨 run 37761767553 red 3/3 (2 distinct errors) — both fixed + pushed; awaiting re-run |
+| host: CI (3-OS matrix + smoke param assertions) | 🔨 run 37780116943 red 3/3 — 2 prior C++ errors fixed (compiles + links on all 3); 2 new packaging errors (curl header, VST3 helper crash) both fixed; awaiting re-run |
 | cli/ (offline audio→audio) | ⏸ not started |
 | docs (README/CONFIG/OSC/ARCHITECTURE) | ✅ |
 | logo + name (Weft) | ✅ (assets/logo/) |
 
 ## Log
+
+- **2026-10-08 (7)** — CI run 37780116943 (from `3a1745c`): both prior C++
+  errors (String ctor, private getValue) are **fixed** — all 3 OSes now compile
+  and the VST3 **links**. Failures moved to the JUCE packaging stage, 2 new
+  independent errors, both source-verified against JUCE 8.0.4:
+  - Linux (compile, `juce_core.cpp` compiled *into* `weft_smoke_plugin`):
+    `fatal error: curl/curl.h`. `JUCE_USE_CURL` defaults to 1 via a `#ifndef`
+    guard (juce_core.h:151) and the runner lacks libcurl dev headers. We use
+    no networking; curl *linking* is separately opt-in (`NEEDS_CURL`, default
+    off) so there is nothing to unlink. Fix: `target_compile_definitions(...
+    JUCE_USE_CURL=0)` on both `weft_smoke_plugin` and `weft_smoke` (module
+    sources compile into each target with that target's own defs).
+  - Windows + macOS (post-build): `juce_vst3_helper -create` (writes
+    moduleinfo.json) crashes — Windows 0xC0000005 (MSB3073), macOS SIGSEGV
+    139. No matching upstream issue found. 8.0.15 rewrote the helper
+    (shared → per-plugin, inherits plugin compile defs) but also split
+    `juce_audio_processors` into `_headless` — reorg risk too high; staying on
+    the 8.0.4 pin. JUCE's own sanctioned workaround: `VST3_AUTO_MANIFEST` is a
+    documented `juce_add_plugin()` keyword (one_value arg, property default
+    TRUE, gates the helper invocation) → set FALSE. The smoke host is
+    unaffected: `VST3PluginFormat::findAllTypesForFile` falls back to slow-path
+    factory enumeration when moduleinfo.json is absent
+    (`getLibraryPaths` → `getPluginFactory` → `findDescriptionsSlow`, verified
+    at juce_VST3PluginFormat.cpp:4095-4131) — instance creation
+    (`createVST3Instance` → `VST3ModuleHandle::create`) never reads it either.
+  Pushed; next CI run is the source of truth. CI-fix cycle 4.
 
 - **2026-10-08 (6)** — CI run 37761767553 (from `67bfd8d`): core green 3/3,
   host red 3/3 — but down to just **2 distinct errors**, both source-verified

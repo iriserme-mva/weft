@@ -32,6 +32,9 @@ target_link_libraries(weft_smoke
 # (compiled into this target) don't drag in GTK (Linux/BSD) or WebKit (macOS).
 # Matches the way JUCE's own AudioPluginHost is configured.
 target_compile_definitions(weft_smoke PRIVATE JUCE_WEB_BROWSER=0)
+# No networking: JUCE_USE_CURL defaults to 1 and #includes <curl/curl.h> on
+# Linux/BSD, where CI runners lack libcurl dev headers. See test_plugin.
+target_compile_definitions(weft_smoke PRIVATE JUCE_USE_CURL=0)
 if(WIN32)
     target_link_libraries(weft_smoke PRIVATE ws2_32 winmm)
 endif()

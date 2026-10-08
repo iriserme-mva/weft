@@ -1,6 +1,7 @@
 # build trees
 build/
 build_stale/
+build_stale_*/
 cmake-build-*/
 
 # object / binary artifacts
