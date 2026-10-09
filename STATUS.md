@@ -17,13 +17,21 @@ current after every session** — last section first.
 | host: JuceBackend (IPluginBackend over JUCE, VST3) | ✅ written, API-verified against JUCE 8.0.4 source |
 | host: test VST3 plugin (WeftSmokePlugin) + smoke CLI | ✅ written (DryMix float 0..1 def 0.8; Mode choice Soft/Hard/Off) |
 | host: CMake (JUCE 8.0.4 sha256-pinned, opt-in WEFT_BUILD_HOST) | ✅ pushed; FORMATS VST3 wrapper fix pending CI verification |
-| host: CI (3-OS matrix + smoke param assertions) | 🔨 **segfault FIXED** (`7389a84`): plugin loads + params enumerate on all 3 OSes. Only failure now = stale smoke assertion (`names == {"DryMix","Mode"}`) vs VST3 wrapper's auto-injected "Bypass" param (id `byps`, JUCE spec requires bypass export) → assertion relaxed to superset check; awaiting CI |
+| host: CI (3-OS matrix + smoke param assertions) | ✅ **GREEN 6/6** (run 37984831984, `f6c9d22`): plugin loads, no crash, smoke assertions pass on Linux/macOS/Windows; `crash_diag` instrumentation removed |
 | cli/ (offline audio→audio) | ⏸ not started |
 | docs (README/CONFIG/OSC/ARCHITECTURE) | ✅ |
 | logo + name (Weft) | ✅ (assets/logo/) |
 
 ## Log
 
+- **2026-10-09 (14)** — **CI GREEN 6/6** (run 37984831984, `f6c9d22`): host +
+  core all success on Linux/macOS/Windows. The VST3 host chain is verified
+  end-to-end: plugin build → bundle packaging → headless load → param
+  enumeration → JSON dump → assertions, all three OSes. Follow-up: removed
+  the temporary `crash_diag.hpp` instrumentation (file + all
+  `weft_smoke_diag::` call sites in `JuceBackend.cpp`/`smoke.cpp`) — it did
+  its job (the step markers + macOS backtrace are how the teardown UAF was
+  found). Host layer DONE; next is the offline audio→audio CLI (item 8).
 - **2026-10-09 (13)** — **Smoke assertions fixed (test-only, 2nd round).** Run
   37983104167 (`4caad2d`) proved the superset name-check passed on all 3
   OSes, then tripped on two float/format expectations, both test bugs:

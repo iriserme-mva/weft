@@ -7,8 +7,6 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
-#include "crash_diag.hpp"
-
 namespace weft {
 
 namespace {
@@ -112,11 +110,9 @@ bool JuceBackend::loadSlot(const std::string& slotId, const std::string& path,
         if (err) *err = "plugin not found: " + path;
         return false;
     }
-    weft_smoke_diag::weftSmokeStep("file exists, building format manager");
 
     juce::AudioPluginFormatManager mgr;
     mgr.addDefaultFormats();
-    weft_smoke_diag::weftSmokeStep("format manager built, scanning for matching format");
 
     juce::AudioPluginFormat* format = nullptr;
     for (int i = 0; i < mgr.getNumFormats(); ++i) {
@@ -130,7 +126,6 @@ bool JuceBackend::loadSlot(const std::string& slotId, const std::string& path,
         if (err) *err = "no plugin format can load: " + path;
         return false;
     }
-    weft_smoke_diag::weftSmokeStep("format matched, enumerating types in bundle");
 
     juce::OwnedArray<juce::PluginDescription> descs;
     format->findAllTypesForFile(descs, file.getFullPathName());
@@ -138,8 +133,6 @@ bool JuceBackend::loadSlot(const std::string& slotId, const std::string& path,
         if (err) *err = "no plugin types found in: " + path;
         return false;
     }
-    weft_smoke_diag::weftSmokeStep("found " + std::to_string(descs.size()) +
-                                   " type(s), creating plugin instance");
 
     const juce::PluginDescription& desc = *descs[0];
     juce::String errStr;
@@ -149,10 +142,8 @@ bool JuceBackend::loadSlot(const std::string& slotId, const std::string& path,
         if (err) *err = "failed to create plugin instance: " + errStr.toStdString();
         return false;
     }
-    weft_smoke_diag::weftSmokeStep("instance created, calling prepareToPlay");
 
     instance->prepareToPlay(44100.0, 512);
-    weft_smoke_diag::weftSmokeStep("prepareToPlay returned, mapping parameters");
 
     outParams.pluginId = slotId;
     outParams.pluginName = instance->getName().toStdString();
