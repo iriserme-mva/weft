@@ -97,7 +97,7 @@ jobs:
           echo "path=$vst3" >> "$GITHUB_OUTPUT"
           echo "plugin at: $vst3"
 
-      - name: Smoke (load plugin, dump params, expect 2 params)
+      - name: Smoke (load plugin, dump params, verify plugin params)
         shell: bash
         run: |
           # Binary layout:
@@ -112,7 +112,11 @@ jobs:
           d = json.load(open("smoke_out.json"))
           assert d["pluginName"] == "WeftSmokePlugin", d["pluginName"]
           names = {p["title"] for p in d["params"]}
-          assert names == {"DryMix", "Mode"}, names
+          # The VST3 wrapper (JUCE, plugin side) auto-injects a standard
+          # "Bypass" param (id 'byps' = 0x62797073), so the host reports the
+          # plugin's own params PLUS that injected one. Require the two real
+          # params to be present with correct values; tolerate injected extras.
+          assert {"DryMix", "Mode"} <= names, names
           dm = next(p for p in d["params"] if p["title"] == "DryMix")
           md = next(p for p in d["params"] if p["title"] == "Mode")
           assert dm["stepCount"] == 0 and dm["defaultValue"] == 0.8, dm

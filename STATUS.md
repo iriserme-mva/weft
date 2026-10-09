@@ -17,13 +17,26 @@ current after every session** — last section first.
 | host: JuceBackend (IPluginBackend over JUCE, VST3) | ✅ written, API-verified against JUCE 8.0.4 source |
 | host: test VST3 plugin (WeftSmokePlugin) + smoke CLI | ✅ written (DryMix float 0..1 def 0.8; Mode choice Soft/Hard/Off) |
 | host: CMake (JUCE 8.0.4 sha256-pinned, opt-in WEFT_BUILD_HOST) | ✅ pushed; FORMATS VST3 wrapper fix pending CI verification |
-| host: CI (3-OS matrix + smoke param assertions) | 🔨 segfault (exit 139) on all 3 OSes — **root cause CONFIRMED (macOS symbolicated backtrace): double-ownership of plugin params in test_plugin/plugin.cpp** (unique_ptr members + addParameter() transfers ownership → UAF in ~AudioProcessorParameterGroup at teardown of the host's throwaway instance). Fixed locally — raw-pointer ownership per canonical JUCE pattern; awaiting CI verification |
+| host: CI (3-OS matrix + smoke param assertions) | 🔨 **segfault FIXED** (`7389a84`): plugin loads + params enumerate on all 3 OSes. Only failure now = stale smoke assertion (`names == {"DryMix","Mode"}`) vs VST3 wrapper's auto-injected "Bypass" param (id `byps`, JUCE spec requires bypass export) → assertion relaxed to superset check; awaiting CI |
 | cli/ (offline audio→audio) | ⏸ not started |
 | docs (README/CONFIG/OSC/ARCHITECTURE) | ✅ |
 | logo + name (Weft) | ✅ (assets/logo/) |
 
 ## Log
 
+- **2026-10-09 (12)** — **SEGFAULT RESOLVED** (run 37976368540, from `7389a84`,
+  the double-ownership fix). All 3 host jobs now get PAST `findAllTypesForFile`:
+  plugin loads, no signal, valid params JSON printed on Linux/macOS/Windows.
+  Remaining failure (all 3 OSes, identical) is the smoke assertion, not a
+  crash: `AssertionError: {'DryMix', 'Mode', 'Bypass'}`. Root cause: the
+  **plugin-side** JUCE VST3 wrapper auto-injects a standard "Bypass"
+  `AudioParameterBool` (id `'byps'` = 0x62797073) whenever the processor
+  provides none — VST3 spec requires a bypass export
+  (`juce_audio_plugin_client_VST3.cpp:600-612`). The smoke assertion was
+  hardcoded to `names == {"DryMix","Mode"}` (written before the wrapper's
+  injection behavior was observed). **Fixed:** assertion now checks
+  `{"DryMix","Mode"} <= names` (superset) plus the per-param value checks;
+  injected extras tolerated. No host/plugin code change.
 - **2026-10-09 (11)** — **ROOT CAUSE OF THE VST3-LOAD SEGFAULT CONFIRMED + FIXED.**
   CI run 37943716551 (from `d1f444b`, after dropping `juce_audio_plugin_client`
   from the host) compiled clean 47/47 and STILL segfaulted (exit 139) on all 3
