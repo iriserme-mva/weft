@@ -24,6 +24,20 @@ current after every session** — last section first.
 
 ## Log
 
+- **2026-10-09 (13)** — **Smoke assertions fixed (test-only, 2nd round).** Run
+  37983104167 (`4caad2d`) proved the superset name-check passed on all 3
+  OSes, then tripped on two float/format expectations, both test bugs:
+  (a) DryMix `defaultValue` round-trips through JSON as
+  `0.800000011920929` — VST3 params are float32, so `== 0.8` fails in
+  Python float64; now compared with tolerance 1e-5. (b) Mode `listItems`
+  is `[]`, not `["Soft","Hard","Off"]`: our backend loads the plugin via
+  the **VST3 format**, which returns JUCE `VST3Parameter` wrappers whose
+  `getAllValueStrings()` returns `{}` (verified in
+  `juce_VST3PluginFormat.cpp:2574`); raw VST3 `ParameterInfo` carries no
+  value strings at all. So a choice param hosted through VST3 always
+  reports empty labels — asserted `[]` and the discrete `stepCount == 3`.
+  Also corrected the misleading comment in `JuceBackend.cpp`. No
+  host/plugin behavior changed.
 - **2026-10-09 (12)** — **SEGFAULT RESOLVED** (run 37976368540, from `7389a84`,
   the double-ownership fix). All 3 host jobs now get PAST `findAllTypesForFile`:
   plugin loads, no signal, valid params JSON printed on Linux/macOS/Windows.

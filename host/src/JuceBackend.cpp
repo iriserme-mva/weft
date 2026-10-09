@@ -55,9 +55,12 @@ weft::Param mapParam(const juce::AudioProcessorParameter* p, uint32_t fallbackId
     const int steps = p->getNumSteps();
     if (p->isDiscrete() && steps > 1) {
         param.stepCount = steps;
-        // Labels for discrete params. For raw VST3 this is usually empty
-        // (VST3 carries no value strings), but JUCE-native hosted params
-        // (e.g. our AudioParameterChoice smoke plugin) expose them.
+        // Labels for discrete params. For raw VST3 this is ALWAYS empty:
+        // VST3 ParameterInfo carries no value strings, and JUCE's
+        // VST3Parameter (what the VST3 format actually returns to us)
+        // returns {} from getAllValueStrings() — even for a choice param.
+        // Only a non-format (in-process JUCE-native) host would expose
+        // labels, which this backend never does.
         std::vector<std::string> items;
         const juce::StringArray sa = p->getAllValueStrings();
         for (int i = 0; i < sa.size(); ++i)

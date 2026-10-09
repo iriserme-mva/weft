@@ -115,11 +115,18 @@ jobs:
           # The VST3 wrapper (JUCE, plugin side) auto-injects a standard
           # "Bypass" param (id 'byps' = 0x62797073), so the host reports the
           # plugin's own params PLUS that injected one. Require the two real
-          # params to be present with correct values; tolerate injected extras.
+          # params to be present with correct values; tolerate injected extras
+          # (Bypass is a JUCE-injected bool, stepCount 2).
           assert {"DryMix", "Mode"} <= names, names
           dm = next(p for p in d["params"] if p["title"] == "DryMix")
           md = next(p for p in d["params"] if p["title"] == "Mode")
-          assert dm["stepCount"] == 0 and dm["defaultValue"] == 0.8, dm
-          assert md["stepCount"] == 3 and md["listItems"] == ["Soft", "Hard", "Off"], md
+          # VST3 params are float32: 0.8f round-trips through JSON as
+          # 0.800000011920929, so compare with a tolerance, not exact ==.
+          assert dm["stepCount"] == 0 and abs(dm["defaultValue"] - 0.8) < 1e-5, dm
+          # Raw VST3 ParameterInfo carries no value strings — JUCE's
+          # VST3Parameter::getAllValueStrings() returns {} — so a choice
+          # param hosted through the VST3 format reports listItems == [].
+          # Assert the discrete step count instead of the label list.
+          assert md["stepCount"] == 3 and md["listItems"] == [], md
           print("SMOKE OK")
           EOF
