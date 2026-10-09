@@ -17,13 +17,36 @@ current after every session** — last section first.
 | host: JuceBackend (IPluginBackend over JUCE, VST3) | ✅ written, API-verified against JUCE 8.0.4 source |
 | host: test VST3 plugin (WeftSmokePlugin) + smoke CLI | ✅ written (DryMix float 0..1 def 0.8; Mode choice Soft/Hard/Off) |
 | host: CMake (JUCE 8.0.4 sha256-pinned, opt-in WEFT_BUILD_HOST) | ✅ pushed; FORMATS VST3 wrapper fix pending CI verification |
-| host: CI (3-OS matrix + smoke param assertions) | 🔨 run 37853305618 (from `1b22ca3`) RUNNING — prior failure root cause **confirmed from CI log**: smoke host missing `JUCE_PLUGINHOST_VST3=1` → format manager had zero formats → `no plugin format can load: …/WeftSmokePlugin.vst3`. Fixed in `1b22ca3`; awaiting re-run |
+| host: CI (3-OS matrix + smoke param assertions) | 🔨 segfault (exit 139) at VST3 load on all 3 OSes — root cause #2 suspected = smoke host linking the plugin-side `juce_audio_plugin_client` module (double VST3 SDK). Fix = drop that module + add step markers/backtrace handler so next CI log names the exact line |
 | cli/ (offline audio→audio) | ⏸ not started |
 | docs (README/CONFIG/OSC/ARCHITECTURE) | ✅ |
 | logo + name (Weft) | ✅ (assets/logo/) |
 
 ## Log
 
+- **2026-10-09 (10)** — CI runs 37853305618 / 37853454652 (from `1b22ca3`):
+  the `JUCE_PLUGINHOST_VST3=1` fix **worked** — the old `no plugin format can
+  load` error is gone, build 47/47, smoke binary linked, the VST3 format
+  manager now *finds* the plugin. But the failure advanced one more stage
+  deeper, to a **segfault (exit 139)** inside the VST3 load/instantiate, and it
+  reproduces on **all 3 OSes** (Ubuntu 113571887354, macOS 113571887593,
+  Windows 113571887206) → a shared code path, not platform-specific.
+  **Root-cause hunt (JUCE 8.0.4 source, read end-to-end):** every host-side init
+  layer is fully null-defensive (`VST3ModuleHandle::create`,
+  `VST3ComponentHolder::initialise`, `VST3PluginInstance::initialise`,
+  `prepareToPlay`, `findDescriptionsSlow`, `RefCountedDllHandle::getHandle`);
+  the test plugin is headless (no GUI/editor); `JUCE_VST3_HOST_CROSS_PLATFORM_UID`
+  is a red herring (referenced only in the example CMake, never in host code).
+  The one structural difference between `weft_smoke` and JUCE's own working
+  `AudioPluginHost` is that we **link `juce::juce_audio_plugin_client`** — the
+  *plugin-side* module. Linking it compiles a second copy of the VST3 SDK base
+  into the host executable, which conflicts (symbol interposition / ODR on the
+  shared `FUnknown`/`IPluginFactory` base) with the SDK already compiled into
+  the loaded `.vst3` plugin and segfaults at instantiate. Fix: drop that module
+  (the host uses no client API) AND add diagnostic instrumentation
+  (`host/src/crash_diag.hpp`): step markers around each JUCE load stage + a
+  SIGSEGV/SIGABRT/SIGFPE backtrace handler, so if it still crashes the next CI
+  log names the exact function. Re-run pending.
 - **2026-10-09 (9)** — CI run 37845591328 (from `00769c9`): `00769c9` **worked**
   — the old `plugin file not found` error is gone, the format-manager slow path
   now runs, and all 3 OSes still build/link/package cleanly (build 47/47, smoke

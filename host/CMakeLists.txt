@@ -26,8 +26,14 @@ target_link_libraries(weft_smoke
         juce::juce_core
         juce::juce_events
         juce::juce_audio_processors
-        juce::juce_audio_plugin_client
 )
+# NOTE: we do NOT link juce::juce_audio_plugin_client into the smoke CLI.
+# That is the *plugin-side* module; linking it would compile a second copy of
+# the VST3 SDK base into the host executable, which conflicts (symbol
+# interposition / ODR on the shared FUnknown/IPluginFactory base) with the SDK
+# already compiled into the loaded .vst3 plugin and segfaults at instantiate
+# time. JUCE's own AudioPluginHost links only juce_audio_processors (host side)
+# for exactly this reason. JuceBackend.cpp / smoke.cpp use no client API.
 # Headless host: disable the web browser so the juce_gui_extra module sources
 # (compiled into this target) don't drag in GTK (Linux/BSD) or WebKit (macOS).
 # Matches the way JUCE's own AudioPluginHost is configured.

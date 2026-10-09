@@ -8,6 +8,7 @@
 #include <juce_events/juce_events.h>  // juce::initialiseJuce_GUI()
 
 #include "JuceBackend.hpp"
+#include "crash_diag.hpp"
 #include "nlohmann/json.hpp"
 
 using json = nlohmann::json;
@@ -44,7 +45,9 @@ json toJson(const weft::ParamSet& set) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    weft_smoke_diag::weftInstallCrashHandler();
     juce::initialiseJuce_GUI();
+    weft_smoke_diag::weftSmokeStep("JUCE initialised, about to load slot");
 
     if (argc < 2) {
         std::fprintf(stderr,
