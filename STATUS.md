@@ -7,7 +7,7 @@ current after every session** — last section first.
 
 - ✅ done · 🔨 in progress · ⏸ blocked (state why) · 📅 planned
 
-## Current state (2026-10-08)
+## Current state (2026-10-09)
 
 | Layer | Status |
 |---|---|
@@ -17,13 +17,52 @@ current after every session** — last section first.
 | host: JuceBackend (IPluginBackend over JUCE, VST3) | ✅ written, API-verified against JUCE 8.0.4 source |
 | host: test VST3 plugin (WeftSmokePlugin) + smoke CLI | ✅ written (DryMix float 0..1 def 0.8; Mode choice Soft/Hard/Off) |
 | host: CMake (JUCE 8.0.4 sha256-pinned, opt-in WEFT_BUILD_HOST) | ✅ pushed; FORMATS VST3 wrapper fix pending CI verification |
-| host: CI (3-OS matrix + smoke param assertions) | 🔨 segfault (exit 139) at VST3 load on all 3 OSes — root cause #2 suspected = smoke host linking the plugin-side `juce_audio_plugin_client` module (double VST3 SDK). Fix = drop that module + add step markers/backtrace handler so next CI log names the exact line |
+| host: CI (3-OS matrix + smoke param assertions) | 🔨 segfault (exit 139) on all 3 OSes — **root cause CONFIRMED (macOS symbolicated backtrace): double-ownership of plugin params in test_plugin/plugin.cpp** (unique_ptr members + addParameter() transfers ownership → UAF in ~AudioProcessorParameterGroup at teardown of the host's throwaway instance). Fixed locally — raw-pointer ownership per canonical JUCE pattern; awaiting CI verification |
 | cli/ (offline audio→audio) | ⏸ not started |
 | docs (README/CONFIG/OSC/ARCHITECTURE) | ✅ |
 | logo + name (Weft) | ✅ (assets/logo/) |
 
 ## Log
 
+- **2026-10-09 (11)** — **ROOT CAUSE OF THE VST3-LOAD SEGFAULT CONFIRMED + FIXED.**
+  CI run 37943716551 (from `d1f444b`, after dropping `juce_audio_plugin_client`
+  from the host) compiled clean 47/47 and STILL segfaulted (exit 139) on all 3
+  OSes at the same step marker (`format matched, enumerating types in bundle`).
+  The macOS job's backtrace came back **fully symbolicated** and is decisive —
+  the crash is NOT at instantiate (the long-held theory) but at **teardown of
+  the host's throwaway instance** during enumeration:
+  ```
+  weft::JuceBackend::loadSlot
+  → juce::VST3PluginFormat::findAllTypesForFile
+  → juce::DescriptionLister::findDescriptionsSlow   (host creates temp IComponent)
+  → [plugin] JuceVST3Component::release() + 40      (VSTComSmartPtr → refcount 0)
+  → [plugin] JuceVST3Component::~JuceVST3Component() + 192
+  → [plugin] JuceAudioProcessor::~JuceAudioProcessor() + 140
+  → [plugin] weft_smoke::SmokeProcessor::~SmokeProcessor() + 84
+  → [plugin] juce::AudioProcessor::~AudioProcessor() + 60
+  → [plugin] juce::AudioProcessorParameterGroup::~AudioProcessorParameterGroup() + 100  ← SIGSEGV
+  ```
+  **Mechanism (source-verified in JUCE 8.0.4, juce_AudioProcessor.cpp):**
+  `AudioProcessor::addParameter(AudioProcessorParameter*)` wraps the raw
+  pointer in a `unique_ptr` and adds it to the processor's `parameterTree` —
+  the processor TAKES OWNERSHIP and deletes it in `~AudioProcessor` (header
+  doc: "managed and deleted automatically by the AudioProcessor"). Our
+  `SmokeProcessor` ctor also held the same two params in
+  `std::unique_ptr<AudioParameterFloat/Choice>` members and passed
+  `.get()` to `addParameter` → **double ownership**. On destruction the
+  derived `~SmokeProcessor` frees both params first, then the base
+  `~AudioProcessor` destroys `parameterTree` → `~AudioProcessorParameterGroup`
+  deletes the already-freed params → use-after-free → SIGSEGV. Identical on
+  all 3 OSes (pure C++ lifetime bug, no platform involvement).
+  **Fix:** params are now plain `new` + raw-pointer members (never deleted by
+  us; owned by the processor), matching JUCE's canonical examples
+  (`examples/Plugins/GainPluginDemo.h`: `addParameter (gain = new ...)`).
+  The earlier `juce_audio_plugin_client` drop (`93dac4a`) was still correct
+  (host must not link the plugin-side module) but was a red herring for THIS
+  crash. `crash_diag.hpp` instrumentation (step markers + backtrace) did its
+  job and can be dropped once the smoke is green 3/3.
+  **NOTE for future hosts:** any JUCE `AudioProcessor` subclass must never
+  smart-pointer-own params added via `addParameter`/`addParameterGroup`.
 - **2026-10-09 (10)** — CI runs 37853305618 / 37853454652 (from `1b22ca3`):
   the `JUCE_PLUGINHOST_VST3=1` fix **worked** — the old `no plugin format can
   load` error is gone, build 47/47, smoke binary linked, the VST3 format

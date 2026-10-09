@@ -12,12 +12,21 @@ public:
         : AudioProcessor(juce::AudioProcessor::BusesProperties()
                              .withInput("Input", juce::AudioChannelSet::stereo())
                              .withOutput("Output", juce::AudioChannelSet::stereo())) {
-        dryMixParameter = std::make_unique<juce::AudioParameterFloat>(
+        // CRITICAL (JUCE 8.0.4): addParameter() transfers ownership of the
+        // parameter to the AudioProcessor — the parameterTree deletes it in
+        // ~AudioProcessor (juce_AudioProcessor.cpp, addParameter wraps the raw
+        // pointer in a unique_ptr). Do NOT also hold it in a unique_ptr member:
+        // that double-ownership is a use-after-free that segfaults at teardown
+        // of any instance (e.g. the throwaway component a VST3 host creates in
+        // findAllTypesForFile) on every OS. Canonical JUCE pattern: raw pointer
+        // member owned by the processor (see examples/Plugins/GainPluginDemo.h).
+        dryMixParameter = new juce::AudioParameterFloat(
             "dryMix", "DryMix", juce::NormalisableRange<float>(0.f, 1.f), 0.8f);
-        modeParameter = std::make_unique<juce::AudioParameterChoice>(
+        addParameter(dryMixParameter);
+
+        modeParameter = new juce::AudioParameterChoice(
             "mode", "Mode", juce::StringArray{"Soft", "Hard", "Off"}, 0);
-        addParameter(dryMixParameter.get());
-        addParameter(modeParameter.get());
+        addParameter(modeParameter);
     }
 
     static juce::AudioProcessor* createPluginFilter() {
@@ -59,8 +68,10 @@ public:
     void setStateInformation(const void*, int) override {}
 
 private:
-    std::unique_ptr<juce::AudioParameterFloat> dryMixParameter;
-    std::unique_ptr<juce::AudioParameterChoice> modeParameter;
+    // Owned by the AudioProcessor (see addParameter comment in ctor) — raw
+    // pointer, never delete manually, never hold in a smart pointer.
+    juce::AudioParameterFloat* dryMixParameter = nullptr;
+    juce::AudioParameterChoice* modeParameter = nullptr;
     float dryMix = 0.8f;
 };
 
