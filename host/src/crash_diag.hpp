@@ -27,6 +27,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 
 #if defined(_WIN32)
 // Windows: no execinfo. A minimal handler that names the signal.
@@ -84,6 +85,12 @@ namespace weft_smoke_diag {
 // Step marker. Always flushed so it lands in the CI log even on a hard crash.
 static inline void weftSmokeStep(const char* label) {
     std::fprintf(stderr, "[weft-smoke] step: %s\n", label);
+    std::fflush(stderr);
+}
+
+// std::string overload for dynamically built step labels.
+static inline void weftSmokeStep(const std::string& label) {
+    std::fprintf(stderr, "[weft-smoke] step: %s\n", label.c_str());
     std::fflush(stderr);
 }
 
