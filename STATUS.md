@@ -18,8 +18,8 @@ current after every session** — last section first.
 | host: test VST3 plugin (WeftSmokePlugin) + smoke CLI | ✅ written (DryMix float 0..1 def 0.8; Mode choice Soft/Hard/Off) |
 | host: CMake (JUCE 8.0.4 sha256-pinned, opt-in WEFT_BUILD_HOST) | ✅ pushed; FORMATS VST3 wrapper fix pending CI verification |
 | host: CI (3-OS matrix + smoke param assertions) | ✅ **GREEN 6/6** (run 37984831984, `f6c9d22`): plugin loads, no crash, smoke assertions pass on Linux/macOS/Windows; `crash_diag` instrumentation removed |
-| cli: `weft-render` offline audio→audio (item 8) | 🔨 code done (param-push + stride-invariant render + CMake + CI render job); first CI compile red 3/3 (bare `int64` + const `createWriterFor`) — **fixed**, re-run pending |
-| packaging (item 8f) | 🔨 root LICENSE (MIT), `--version` + CMake version stamp, README render docs + JUCE AGPLv3 correction — ready to commit |
+| cli: `weft-render` offline audio→audio (item 8) | ✅ **CI GREEN** (run 38021890348, `df334c1`): param-push + stride-invariant render + CMake + CI render job (WAV selftest + `DryMix=0.5` gain-ratio assert on all 3 OSes). First compile red 3/3 (bare `int64` + const `createWriterFor`) fixed in the same commit |
+| packaging (item 8f) | ✅ root LICENSE (MIT), `--version` + CMake version stamp 0.1.0, README render docs + JUCE AGPLv3/commercial license correction |
 | docs (README/CONFIG/OSC/ARCHITECTURE) | ✅ |
 | logo + name (Weft) | ✅ (assets/logo/) |
 
@@ -51,8 +51,11 @@ current after every session** — last section first.
   (d) *8f packaging*: root MIT `LICENSE`, README render/build docs + status
   table, JUCE license corrected to **AGPL-3.0 / commercial** (was wrongly
   GPL-3.0; JUCE 8.0.4 is dual-licensed, fetched via FetchContent, not
-  vendored). Fix commit pushed next; run 38019353657's red is expected to be
-  replaced by a green render pass. Probe state reset 2→0 after green.
+  vendored). Fix commit `df334c1` → **run 38021890348 GREEN 3/3** (Linux/
+  macOS/Windows): weft-render compiles and the CI render job passes — WAV
+  selftest + `DryMix=0.5` gain-ratio assertion confirmed the config param
+  actually reaches the live plugin through the full host chain. **Item 8
+  (offline audio→audio CLI + packaging) COMPLETE.**
 - **2026-10-09 (14)** — **CI GREEN 6/6** (run 37984831984, `f6c9d22`): host +
   core all success on Linux/macOS/Windows. The VST3 host chain is verified
   end-to-end: plugin build → bundle packaging → headless load → param
