@@ -38,6 +38,23 @@ Architecture decision (user-directed): the **inner VST wrapper only describes
 the param interface**; the **outer app owns the OSC transport**. The core
 library never links a plugin SDK.
 
+## Quick start (no compilation)
+
+Prebuilt `weft-render` binaries for Windows x64, Linux x64 and macOS
+(arm64 + Intel) are published on every [release](../../releases). Grab the
+zip/tarball for your platform, unpack, and:
+
+```sh
+./weft-render input.wav chain.json output.wav --bits 16
+```
+
+That's the whole UX: one input WAV, one JSON config (see
+[examples/chain.json](examples/chain.json) for the shape — each slot names a
+VST3 file and its `params`), one output WAV at the input's sample rate.
+
+> The plugin paths in the config point at *your* VST3 files — Weft ships
+> without any third-party plugins.
+
 ## Building the core (local)
 
 Requires CMake ≥ 3.16 and a C++17 compiler (tested: MSYS2 ucrt64 g++ 16, cmake 4.4).

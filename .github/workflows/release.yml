@@ -1,0 +1,123 @@
+name: release
+
+# Publishes prebuilt weft-render binaries for every v* tag:
+#   windows-x64 (.zip), linux-x64 (.tar.gz), macos-universal (.tar.gz)
+# Mirrors the host job of ci.yml (same compilers, same deps) and adds
+# packaging + a GitHub Release assembled from the three artifacts.
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: windows-x64
+            fmt: zip
+          - os: ubuntu-latest
+            arch: linux-x64
+            fmt: tar.gz
+          - os: macos-latest
+            arch: macos-universal
+            fmt: tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            libasound2-dev \
+            libfreetype-dev \
+            libfontconfig1-dev \
+            libx11-dev \
+            libxext-dev \
+            libxrender-dev \
+            libx11-xcb-dev \
+            libxkbcommon-dev \
+            libgl1-mesa-dev \
+            libxcomposite-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxrandr-dev
+
+      - name: Configure (Windows – MSVC)
+        if: runner.os == 'Windows'
+        # windows-latest = windows-2025-vs2026 image: VS 2026 generator.
+        run: cmake -S . -B build -G "Visual Studio 18 2026" -A x64 -DWEFT_BUILD_HOST=ON
+
+      - name: Configure (Linux – Ninja)
+        if: runner.os == 'Linux'
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DWEFT_BUILD_HOST=ON
+
+      - name: Configure (macOS – universal arm64 + x86_64)
+        if: runner.os == 'macOS'
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DWEFT_BUILD_HOST=ON
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        run: cmake --build build --config Release --target weft-render
+
+      - name: Build (Linux / macOS)
+        if: runner.os != 'Windows'
+        run: cmake --build build --target weft-render
+
+      - name: Package
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          [ -n "$version" ] && [ "$version" != "${GITHUB_REF_NAME}" ] || { echo "::error::run from a v* tag"; exit 1; }
+          bin=build/weft-render
+          [ "$RUNNER_OS" = "Windows" ] && bin=build/Release/weft-render.exe
+          [ -f "$bin" ] || { echo "::error::weft-render binary not found at $bin"; exit 1; }
+          pkg="weft-${version}-${{ matrix.arch }}"
+          mkdir -p "$pkg"
+          cp "$bin" "$pkg/"
+          cp README.md LICENSE "$pkg/"
+          cp -r examples "$pkg/"
+          if [ "${{ matrix.fmt }}" = "zip" ]; then
+            tar -a -cf "${pkg}.zip" "$pkg"
+          else
+            tar -czf "${pkg}.tar.gz" "$pkg"
+          fi
+          ls -la
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weft-${{ matrix.arch }}
+          path: |
+            weft-*.zip
+            weft-*.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Show payload
+        run: ls -la dist/
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: "Weft v${{ github.ref_name }}"
+          files: dist/*
+          generate_release_notes: true
