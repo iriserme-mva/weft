@@ -44,7 +44,9 @@
 #include "weft/chain.hpp"
 #include "weft/config.hpp"
 
-// Version is injected at build time by CMake (configure_file -> weft_version.hpp).
+// Version is injected at build time by CMake (configure_file -> weft_version.hpp,
+// on this target's include path via target_include_directories).
+#include "weft_version.hpp"
 #ifndef WEFT_VERSION_STRING
 #define WEFT_VERSION_STRING "unknown"
 #endif
