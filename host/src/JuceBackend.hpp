@@ -29,6 +29,8 @@ public:
 
     // IPluginBackend
     bool load(const SlotConfig& slot, ParamSet& outParams) override;
+    bool setParams(const std::string& slotId,
+                   const std::vector<std::pair<std::string, float>>& namedValues) override;
     bool setParam(const std::string& slotId, uint32_t id, float normValue) override;
 
     // Load a plugin by file path (convenience for the smoke CLI / tests).
@@ -43,6 +45,22 @@ public:
     // Returns the number of frames processed, or -1 on error.
     int process(const std::string& slotId, const float* in, float* out,
                 int channels, int frames);
+
+    // Re-prepare every loaded slot for the given offline process spec. loadSlot
+    // prepares instances at a default rate (44100/512) so they exist before the
+    // renderer knows the input file's sample rate; the renderer calls this once
+    // it has read the file, so processing runs at the file's true rate/block.
+    void setProcessSpec(double sampleRate, int samplesPerBlock);
+
+    // Largest bus width (max of input and output channel count) across all
+    // loaded slots, at least 1. The renderer sizes its shared processing buffer
+    // to this so no slot — wider on either the input or output side — can
+    // read/write past the buffer.
+    int busWidth() const;
+
+    // Number of output channels of the slot's plugin (totalNumOutputChannels).
+    // The input channel count is returned if the slot is not loaded.
+    int channelCount(const std::string& slotId, int fallback) const;
 
     int numLoadedSlots() const;
 

@@ -34,6 +34,15 @@ public:
                 if (p.id == id) { sets_[id] = norm; return true; }
         return false;
     }
+    bool setParams(const std::string& slotId,
+                   const std::vector<std::pair<std::string, float>>& namedValues) override {
+        // Record the (slot, name) -> value pushes so tests can verify the
+        // config's `params:` block actually reached the backend, not just the
+        // cached model. Name-keyed to avoid cross-slot id collisions.
+        for (const auto& kv : namedValues)
+            namedSets_[slotId + "::" + kv.first] = Param::clamp01(kv.second);
+        return true;
+    }
 
     size_t loads(const std::string& slotId) const {
         auto it = loadCount_.find(slotId);
@@ -43,11 +52,16 @@ public:
         auto it = sets_.find(id);
         return it == sets_.end() ? -1.f : it->second;
     }
+    float lastSetNamed(const std::string& slotId, const std::string& name) const {
+        auto it = namedSets_.find(slotId + "::" + name);
+        return it == namedSets_.end() ? -1.f : it->second;
+    }
 
 private:
     std::map<std::string, Surface> surfaces_;
     std::map<std::string, int> loadCount_;
     std::map<uint32_t, float> sets_;
+    std::map<std::string, float> namedSets_;
 };
 
 static Param thr(std::string units, float dv) {
@@ -73,6 +87,21 @@ static ChainConfig makeCfg() {
     dly.pluginPath = "/vst/Dly.vst3";
     c.slots = {comp, dly};
     return c;
+}
+
+TEST_CASE("load pushes configured params to the plugin instance") {
+    // Regression: the config's `params:` block must reach the live plugin,
+    // not just the cached ParamSet model. If load() only updates the model,
+    // an offline render ignores the config and this fails.
+    MockBackend be;
+    be.addSurface("/vst/Comp.vst3", {thr("dB", 0.5f), ratio()});
+    be.addSurface("/vst/Dly.vst3", {timeParam("ms", 0.2f)});
+    Chain chain(be);
+    std::string err;
+    REQUIRE(chain.load(makeCfg(), &err));
+    // comp is configured with Threshold=0.6 — the backend must have received
+    // the push for it (not just the model update).
+    CHECK(std::abs(be.lastSetNamed("comp", "Threshold") - 0.6f) < 1e-6f);
 }
 
 TEST_CASE("load applies configured params on top of plugin defaults") {

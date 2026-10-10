@@ -44,6 +44,14 @@ public:
     // the plugin), then apply cfg.params on top. Returns false on load failure.
     virtual bool load(const SlotConfig& slot, ParamSet& outParams) = 0;
 
+    // Apply a batch of parameter values (by name) to an already-loaded slot.
+    // This is what makes a config's `params:` block actually reach the plugin:
+    // load() only builds the model surface, the backend must push the values
+    // into the live instance. Unknown names are skipped silently (they may
+    // appear after a hot-swap to a different plugin).
+    virtual bool setParams(const std::string& slotId,
+                           const std::vector<std::pair<std::string, float>>& namedValues) = 0;
+
     // Set a parameter (normalized). Returns false if unknown id.
     virtual bool setParam(const std::string& slotId, uint32_t id, float normValue) = 0;
 };

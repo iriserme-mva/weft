@@ -43,6 +43,10 @@ bool Chain::load(const ChainConfig& cfg, std::string* err) {
             // Unknown names are kept in config (may appear after hot-swap);
             // they are not applied now.
         }
+        // Model updates alone are invisible to the audio — the values must be
+        // pushed into the live plugin instance. (This is what makes a config's
+        // `params:` block actually change what the chain renders.)
+        backend_.setParams(slot.id, slot.params);
         sets_.push_back(std::move(ps));
     }
     cfg_ = cfg;
@@ -73,6 +77,7 @@ bool Chain::apply(const ChainConfig& cfg, std::string* err) {
             }
             for (const auto& kv : slot.params)
                 if (auto* p = ps.findByName(kv.first)) p->value = Param::clamp01(kv.second);
+            backend_.setParams(slot.id, slot.params);
             break;
         }
         if (!found) {

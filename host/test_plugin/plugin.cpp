@@ -36,10 +36,6 @@ public:
     const juce::String getName() const override { return "WeftSmokePlugin"; }
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override {
-        // The param is constructed at its default, so the current (normalized)
-        // value IS the default. Use the public get() accessor — getValue() and
-        // getDefaultValue() are private in JUCE 8.
-        dryMix = dryMixParameter->get();
         juce::ignoreUnused(sampleRate, samplesPerBlock);
     }
 
@@ -47,8 +43,13 @@ public:
 
     void processBlock(juce::AudioBuffer<float>& buffer,
                       juce::MidiBuffer&) override {
-        if (dryMix < 1.0001f)
-            buffer.applyGain(dryMix);  // all channels at once
+        // Read the param live: an offline renderer (and any live host) pushes
+        // config values *after* prepareToPlay, so a cached copy would silently
+        // ignore them. This is what makes the CI render assertion meaningful —
+        // it proves the config's `params:` block actually reaches the plugin.
+        const float mix = dryMixParameter->get();
+        if (mix < 1.0001f)
+            buffer.applyGain(mix);
     }
 
     bool hasEditor() const override { return false; }
@@ -72,7 +73,6 @@ private:
     // pointer, never delete manually, never hold in a smart pointer.
     juce::AudioParameterFloat* dryMixParameter = nullptr;
     juce::AudioParameterChoice* modeParameter = nullptr;
-    float dryMix = 0.8f;
 };
 
 }  // namespace weft_smoke

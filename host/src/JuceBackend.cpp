@@ -86,14 +86,39 @@ bool JuceBackend::load(const SlotConfig& slot, ParamSet& outParams) {
     std::string err;
     if (!loadSlot(slot.id, slot.pluginPath, outParams, &err))
         return false;
-
-    // Apply configured param values (by name) on top of plugin defaults.
+    // Apply configured param values on top of plugin defaults. The model
+    // update is for introspection; the push below is what actually changes
+    // the audio.
     for (const auto& kv : slot.params) {
         weft::Param* p = outParams.findByName(kv.first);
         if (p != nullptr)
             p->value = weft::Param::clamp01(kv.second);
     }
-    return true;
+    return setParams(slot.id, slot.params);
+}
+
+bool JuceBackend::setParams(const std::string& slotId,
+                            const std::vector<std::pair<std::string, float>>& namedValues) {
+    for (auto& slot : slots_) {
+        if (slot.id != slotId || slot.instance == nullptr)
+            continue;
+        const auto& params = slot.instance->getParameters();
+        for (const auto& kv : namedValues) {
+            const std::string name = kv.first;
+            const float value = weft::Param::clamp01(kv.second);
+            for (int i = 0; i < params.size(); ++i) {
+                if (params[i]->getName(128).toStdString() != name)
+                    continue;
+                const_cast<juce::AudioProcessorParameter*>(params[i])
+                    ->setValueNotifyingHost(value);
+                break;
+            }
+            // Unknown names are skipped: they may belong to a different plugin
+            // after a hot-swap, and are kept in the config for that case.
+        }
+        return true;
+    }
+    return false;  // slot not found
 }
 
 bool JuceBackend::loadSlot(const std::string& slotId, const std::string& path,
@@ -211,6 +236,31 @@ int JuceBackend::process(const std::string& slotId, const float* in, float* out,
         return frames;
     }
     return -1;
+}
+
+int JuceBackend::channelCount(const std::string& slotId, int fallback) const {
+    for (const auto& slot : slots_) {
+        if (slot.id == slotId && slot.instance != nullptr)
+            return std::max(1, slot.instance->getTotalNumOutputChannels());
+    }
+    return fallback;
+}
+
+int JuceBackend::busWidth() const {
+    int width = 1;
+    for (const auto& slot : slots_) {
+        if (slot.instance == nullptr)
+            continue;
+        width = std::max(width, slot.instance->getTotalNumInputChannels());
+        width = std::max(width, slot.instance->getTotalNumOutputChannels());
+    }
+    return width;
+}
+
+void JuceBackend::setProcessSpec(double sampleRate, int samplesPerBlock) {
+    for (auto& slot : slots_)
+        if (slot.instance != nullptr)
+            slot.instance->prepareToPlay(sampleRate, samplesPerBlock);
 }
 
 int JuceBackend::numLoadedSlots() const {
