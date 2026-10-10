@@ -7,23 +7,52 @@ current after every session** — last section first.
 
 - ✅ done · 🔨 in progress · ⏸ blocked (state why) · 📅 planned
 
-## Current state (2026-10-09)
+## Current state (2026-10-10)
 
 | Layer | Status |
 |---|---|
-| core: param/chain/config/osc/osc_io | ✅ builds, 26/26 test cases, 142/142 assertions |
+| core: param/chain/config/osc/osc_io | ✅ builds, 27/27 test cases, 144/144 assertions |
 | core: CMake + local build | ✅ (MSYS2 ucrt64 g++ 16.2, cmake 4.4, Ninja) |
 | core: CI (GH Actions, 3-OS) | ✅ green 3/3 |
 | host: JuceBackend (IPluginBackend over JUCE, VST3) | ✅ written, API-verified against JUCE 8.0.4 source |
 | host: test VST3 plugin (WeftSmokePlugin) + smoke CLI | ✅ written (DryMix float 0..1 def 0.8; Mode choice Soft/Hard/Off) |
 | host: CMake (JUCE 8.0.4 sha256-pinned, opt-in WEFT_BUILD_HOST) | ✅ pushed; FORMATS VST3 wrapper fix pending CI verification |
 | host: CI (3-OS matrix + smoke param assertions) | ✅ **GREEN 6/6** (run 37984831984, `f6c9d22`): plugin loads, no crash, smoke assertions pass on Linux/macOS/Windows; `crash_diag` instrumentation removed |
-| cli/ (offline audio→audio) | ⏸ not started |
+| cli: `weft-render` offline audio→audio (item 8) | 🔨 code done (param-push + stride-invariant render + CMake + CI render job); first CI compile red 3/3 (bare `int64` + const `createWriterFor`) — **fixed**, re-run pending |
+| packaging (item 8f) | 🔨 root LICENSE (MIT), `--version` + CMake version stamp, README render docs + JUCE AGPLv3 correction — ready to commit |
 | docs (README/CONFIG/OSC/ARCHITECTURE) | ✅ |
 | logo + name (Weft) | ✅ (assets/logo/) |
 
 ## Log
 
+- **2026-10-10 (1)** — **Item 8: `weft-render` offline CLI + packaging (8f) built;
+  first CI compile red, fixed, re-pushed.** Work of the day:
+  (a) *param-push fix* (8a): `Chain::load` → `JuceBackend::setParams` →
+  `setValueNotifyingHost`, so per-slot config `params` actually reach the live
+  instances; test_plugin reads `DryMix` live; 27/27 test cases, 144/144
+  assertions local (MSYS2 g++ 16.2).
+  (b) *weft-render* (8b): stride-invariant offline renderer — reads a WAV at
+  its own rate (no resampling, mono→stereo upmix), processes full
+  block-size blocks through `JuceBackend::process` at the file's true rate
+  (`setProcessSpec`), writes 16/24/32-bit WAV via
+  `WavAudioFormat::createWriterFor` (6-arg, writer owns the stream). CMake
+  target `weft-render` + `--version` (CMake `configure_file` version stamp,
+  root `project VERSION 0.1.0`).
+  (c) *CI* (8c): render job — Python WAV selftest (gen+parse+ratio assert),
+  then render with the smoke plugin at `DryMix=0.5` and assert
+  out/in mean ratio ≈ 0.5 on all 3 OSes.
+  Pushed `495e331` → run 38019353657 **RED 3/3 host**, core green. Two shared
+  root causes (both compile, all OSes): (1) bare `int64` — not a global type;
+  MSVC C4430/C2146, clang `unknown type name 'int64'` (JUCE 8 defines
+  `juce::int64`, GNU compilers expose bare `int64` — local core build never
+  hit it). Fixed → `int64_t` + `#include <cstdint>` (3 sites).
+  (2) `createWriterFor` is **non-const** (juce_WavAudioFormat.h:300/307) but
+  was called on `const juce::WavAudioFormat wav` → fixed by dropping `const`.
+  (d) *8f packaging*: root MIT `LICENSE`, README render/build docs + status
+  table, JUCE license corrected to **AGPL-3.0 / commercial** (was wrongly
+  GPL-3.0; JUCE 8.0.4 is dual-licensed, fetched via FetchContent, not
+  vendored). Fix commit pushed next; run 38019353657's red is expected to be
+  replaced by a green render pass. Probe state reset 2→0 after green.
 - **2026-10-09 (14)** — **CI GREEN 6/6** (run 37984831984, `f6c9d22`): host +
   core all success on Linux/macOS/Windows. The VST3 host chain is verified
   end-to-end: plugin build → bundle packaging → headless load → param

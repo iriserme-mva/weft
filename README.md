@@ -15,9 +15,9 @@ with — here, the plugins whose signals are interlaced into one chain.
 
 | Layer | What it is | State |
 |---|---|---|
-| `core/` | Platform-agnostic C++17 library: param model, chain, JSON config, OSC wire + addressing, UDP transport | **building & tested** (26/26 test cases green) |
-| `host/` | JUCE-based VST2/3 wrapper backend + GUI app (IO linking) | planned |
-| `cli/` | Offline audio→audio CLI with fixed or time-series params | planned |
+| `core/` | Platform-agnostic C++17 library: param model, chain, JSON config, OSC wire + addressing, UDP transport | **building & tested** (27/27 test cases green) |
+| `host/` | JUCE-based VST3 wrapper backend + `weft_smoke` introspection CLI + `weft-render` offline CLI | **building & CI-tested** |
+| `cli/` | Offline audio→audio CLI (`weft-render`) with per-slot JSON params | **building & CI-tested** |
 
 Progress is tracked in [STATUS.md](STATUS.md).
 
@@ -52,6 +52,45 @@ Third-party headers (`nlohmann/json`, `doctest`) are vendored under
 `third_party/` — no network access needed to build.
 
 CI runs the same steps on GitHub Actions (see `.github/workflows/ci.yml`).
+
+## Building the host + render CLI
+
+The JUCE host layer is opt-in (it fetches JUCE 8.0.4 at configure time, so
+core-only builds stay network-free):
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DWEFT_BUILD_HOST=ON
+cmake --build build -j4 --target weft_smoke weft-smoke-plugin_VST3 weft-render
+```
+
+> JUCE 8 dropped MinGW, so the host layer builds on MSVC (Windows), AppleClang
+> (macOS) and Clang/GCC (Linux) — CI covers all three. The core library
+> still builds on MSYS2 MinGW.
+
+## Rendering offline (audio → audio)
+
+`weft-render` reads a WAV, runs it through the chain described by a JSON
+config, and writes a WAV. No resampling — the output keeps the input's sample
+rate (must be a standard 8k–384k rate) and no audio device is touched.
+
+```sh
+weft-render input.wav chain.json output.wav [--bits 16|24|32] [--version]
+```
+
+- The chain comes from the config's `chain` array; each slot's `params`
+  block is **pushed onto the live plugin instance**, so a config fully
+  determines the render (deterministic, reproducible, diff-able).
+- `--bits 16|24|32` picks the output bit depth (default **32 = 32-bit float
+  WAV**, lossless for the float chain; 16/24 are plain integer conversion,
+  no dither).
+- Slots with `enabled: false` pass audio through untouched; an empty chain is
+  a passthrough.
+- Mono input is upmixed to stereo; output channel count is the widest slot's
+  bus width.
+
+The VST3 plugin path in the config is resolved relative to the current
+working directory (absolute paths work too). See
+[docs/CONFIG.md](docs/CONFIG.md) for the full schema and [examples/chain.json](examples/chain.json).
 
 ## Layout
 
@@ -91,7 +130,10 @@ Weft is informed by (and deliberately distinct from):
 
 ## License
 
-Core library: **MIT** (see `core/LICENSE`). The future `host/` layer will use
-JUCE, which is GPL-3.0 *or* commercial-licensed — its license will be declared
-in `host/` before first release so the overall licensing is unambiguous for
-buyers.
+Weft's own source is **MIT**-licensed (see [LICENSE](LICENSE)). The plugin
+ecosystem is what you bring in — Weft neither bundles nor distributes any
+third-party plugin. The host layer links **JUCE 8.0.4**, which is
+dual-licensed **AGPL-3.0 / commercial**; JUCE is fetched at build time
+(`FetchContent`, pinned by SHA256) and is not vendored into this repo.
+Core-only use stays plain MIT; distributing the host layer requires a
+commercial JUCE licence (or an AGPL-compliant distribution).

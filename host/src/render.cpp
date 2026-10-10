@@ -28,6 +28,7 @@
 // block processed at n < blockSize would mis-stride and read stale data).
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -43,6 +44,11 @@
 #include "weft/chain.hpp"
 #include "weft/config.hpp"
 
+// Version is injected at build time by CMake (configure_file -> weft_version.hpp).
+#ifndef WEFT_VERSION_STRING
+#define WEFT_VERSION_STRING "unknown"
+#endif
+
 namespace {
 
 int fail(const std::string& msg) {
@@ -52,15 +58,24 @@ int fail(const std::string& msg) {
 
 void usage() {
     std::fprintf(stderr,
-                 "usage: weft-render <input.wav> <chain.json> <output.wav> [--bits 16|24|32]\n"
+                 "usage: weft-render [--version] <input.wav> <chain.json> <output.wav> [--bits 16|24|32]\n"
                  "       Renders input.wav through the JUCE-hosted chain from chain.json\n"
                  "       to output.wav (same sample rate, no resampling).\n"
-                 "       --bits: output bit depth, 16, 24, or 32 (default 32 = float WAV).\n");
+                 "       --bits: output bit depth, 16, 24, or 32 (default 32 = float WAV).\n"
+                 "       --version: print the version and exit.\n");
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
+    // Pre-scan for --version so it works before/without the positional args.
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--version") == 0 || std::strcmp(argv[i], "-V") == 0) {
+            std::printf("weft-render %s\n", WEFT_VERSION_STRING);
+            return 0;
+        }
+    }
+
     juce::initialiseJuce_GUI();
 
     if (argc < 4) { usage(); return argc < 2 ? 1 : 0; }
@@ -91,7 +106,7 @@ int main(int argc, char** argv) {
 
     const double sampleRate = reader->sampleRate;
     const int inChannels = (int)reader->numChannels;
-    const int64 total = reader->lengthInSamples;
+    const int64_t total = reader->lengthInSamples;
     if (sampleRate <= 0.0 || inChannels < 1)
         return fail("input WAV has an invalid sample rate or channel count");
     if (total <= 0)
@@ -134,7 +149,9 @@ int main(int argc, char** argv) {
     auto fileOut = juce::File(outPath.c_str()).createOutputStream();
     if (fileOut == nullptr)
         return fail("cannot open output for writing: " + outPath);
-    const juce::WavAudioFormat wav;
+    // createWriterFor() is non-const (it mutates format internals), so the
+    // WavAudioFormat must not be const.
+    juce::WavAudioFormat wav;
     auto writer = std::unique_ptr<juce::AudioFormatWriter>(
         wav.createWriterFor(fileOut.get(), sampleRate, (unsigned int)width, bits, {}, 0));
     if (writer == nullptr)
@@ -149,9 +166,9 @@ int main(int argc, char** argv) {
     juce::AudioBuffer<float> inBuf(width, blockSize);
     juce::AudioBuffer<float> a(width, blockSize), b(width, blockSize);
 
-    int64 pos = 0;
+    int64_t pos = 0;
     while (pos < total) {
-        const int n = (int)std::min<int64>(blockSize, total - pos);
+        const int n = (int)std::min<int64_t>(blockSize, total - pos);
 
         // Pull one block at the file's rate. clear() first guarantees the
         // zero-padding (n..blockSize on the last block) and any channel the
