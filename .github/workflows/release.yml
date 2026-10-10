@@ -82,14 +82,35 @@ jobs:
         if: runner.os != 'Windows'
         run: cmake --build build --target weft-render
 
-      - name: Package
+      - name: Package (Windows – PowerShell)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # zip(1) does not exist in the runner's Git-Bash — use Compress-Archive.
+          # git describe on a tag push is the exact tag (vX.Y.Z); strip the v.
+          $tag = & git describe --tags --exact-match
+          if (-not $tag) { throw "not on a tag; pass ref v* or use workflow_dispatch" }
+          $version = $tag.TrimStart('v')
+          $bin = Get-ChildItem -Path build -Recurse -File |
+            Where-Object { $_.Name -eq 'weft-render.exe' } |
+            Select-Object -First 1
+          if (-not $bin) { throw "weft-render.exe not found under build/" }
+          $pkg = "weft-$version-windows-x64"
+          New-Item -ItemType Directory -Force $pkg | Out-Null
+          Copy-Item $bin.FullName "$pkg/"
+          Copy-Item README.md LICENSE "$pkg/"
+          Copy-Item -Recurse examples "$pkg/"
+          Compress-Archive -Path $pkg -DestinationPath "${pkg}.zip"
+          Get-ChildItem *.zip | Format-List Name, Length
+
+      - name: Package (Linux / macOS – tar)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
-          version="${{ inputs.version }}"
-          [ -n "$version" ] || version="${GITHUB_REF_NAME#v}"
-          [ -n "$version" ] || { echo "::error::no version: run from a v* tag or pass the version input"; exit 1; }
           # weft-render lives under the host/ subdirectory's binary dir
-          # (build/host/Release on MSVC, build/host on Make/Ninja) — locate it.
+          # (build/host on Make/Ninja) — locate it.
+          version=$(git describe --tags --exact-match | sed 's/^v//')
+          [ -n "$version" ] || { echo "::error::not on a tag"; exit 1; }
           bin=$(find build -name 'weft-render' -o -name 'weft-render.exe' | head -n1)
           [ -n "$bin" ] && [ -f "$bin" ] || { echo "::error::weft-render binary not found under build/"; exit 1; }
           echo "Packaging $bin"
@@ -98,12 +119,7 @@ jobs:
           cp "$bin" "$pkg/"
           cp README.md LICENSE "$pkg/"
           cp -r examples "$pkg/"
-          if [ "${{ matrix.fmt }}" = "zip" ]; then
-            # NOTE: `tar -a -cf x.zip` produces a TAR, not a zip — use zip.
-            zip -rq "${pkg}.zip" "$pkg"
-          else
-            tar -czf "${pkg}.tar.gz" "$pkg"
-          fi
+          tar -czf "${pkg}.tar.gz" "$pkg"
           ls -la
 
       - uses: actions/upload-artifact@v4
