@@ -49,3 +49,30 @@ target_compile_definitions(weft_smoke PRIVATE JUCE_PLUGINHOST_VST3=1)
 if(WIN32)
     target_link_libraries(weft_smoke PRIVATE ws2_32 winmm)
 endif()
+
+# ---- render CLI (offline audio->audio) ------------------------------------
+# weft-render <input.wav> <chain.json> <output.wav> [--bits 16|24|32]
+#
+# Same host-side module set as the smoke CLI, plus juce_audio_formats for
+# the WAV reader/writer. Re-uses JuceBackend.cpp so the renderer exercises
+# exactly the same load/process path (including the param-push fix) that
+# the live app uses.
+add_executable(weft-render
+    src/render.cpp
+    src/JuceBackend.cpp
+)
+target_link_libraries(weft-render
+    PRIVATE
+        weft_core
+        juce::juce_core
+        juce::juce_events
+        juce::juce_audio_processors
+        juce::juce_audio_formats
+)
+# NOTE: no juce_audio_plugin_client here either (same ODR reason as smoke).
+target_compile_definitions(weft-render PRIVATE JUCE_WEB_BROWSER=0)
+target_compile_definitions(weft-render PRIVATE JUCE_USE_CURL=0)
+target_compile_definitions(weft-render PRIVATE JUCE_PLUGINHOST_VST3=1)
+if(WIN32)
+    target_link_libraries(weft-render PRIVATE ws2_32 winmm)
+endif()
