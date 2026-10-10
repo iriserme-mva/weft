@@ -19,11 +19,28 @@ current after every session** — last section first.
 | host: CMake (JUCE 8.0.4 sha256-pinned, opt-in WEFT_BUILD_HOST) | ✅ pushed; FORMATS VST3 wrapper fix pending CI verification |
 | host: CI (3-OS matrix + smoke param assertions) | ✅ **GREEN 6/6** (run 37984831984, `f6c9d22`): plugin loads, no crash, smoke assertions pass on Linux/macOS/Windows; `crash_diag` instrumentation removed |
 | cli: `weft-render` offline audio→audio (item 8) | ✅ **CI GREEN** (run 38021890348, `df334c1`): param-push + stride-invariant render + CMake + CI render job (WAV selftest + `DryMix=0.5` gain-ratio assert on all 3 OSes). First compile red 3/3 (bare `int64` + const `createWriterFor`) fixed in the same commit |
+| prebuilt binaries (`release.yml`, `v*` tag) | ✅ **v0.1.5 published** (run 38050365557, `e8fbac9`): windows-x64 zip + linux-x64 tar.gz + macos-universal tar.gz, all verified by download+open; windows exe smoke-tested on this host (`--version` → `weft-render 0.1.5`). First release v0.1.1 had a raw-tar .zip; v0.1.2/3 packaging fixes; v0.1.4 fixed assets, v0.1.5 fixed missing version include — see log (2) |
 | packaging (item 8f) | ✅ root LICENSE (MIT), `--version` + CMake version stamp 0.1.0, README render docs + JUCE AGPLv3/commercial license correction |
 | docs (README/CONFIG/OSC/ARCHITECTURE) | ✅ |
 | logo + name (Weft) | ✅ (assets/logo/) |
 
 ## Log
+
+- **2026-10-10 (2)** — **Prebuilt binaries: `release.yml` + first releases.**
+  README now leads with "Quick start (no compilation)". Release workflow:
+  3-OS build matrix (mirrors ci.yml host job) + packaging + one GitHub
+  Release per `v*` tag. Bumpy first cut — every failure was at
+  *packaging/publish*, all 3 OS builds were green each time:
+  v0.1.0 tag run: binary at `build/host/Release/` not `build/Release/`
+  (MSVC multi-config) → fix `f966f84`; dispatch re-run:
+  `action-gh-release` requires a tag (dispatch has none) → fresh tags
+  only (force-push banned); v0.1.1: `tar -a -cf x.zip` wrote a raw TAR
+  with a .zip name (verified by downloading: starts with the entry name,
+  ends with zero blocks) → pwsh `Compress-Archive`; v0.1.2: no `zip(1)`
+  in the runner's Git-Bash (exit 127) → split package step pwsh/bash;
+  v0.1.3: `Copy-Item A B dest` bash habit → `Copy-Item A, B -Destination`.
+  v0.1.4 = first clean candidate. Asset verification = download +
+  python `zipfile`/`tarfile` open (see weft-project-ops skill).
 
 - **2026-10-10 (1)** — **Item 8: `weft-render` offline CLI + packaging (8f) built;
   first CI compile red, fixed, re-pushed.** Work of the day:
