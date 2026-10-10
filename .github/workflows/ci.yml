@@ -68,11 +68,11 @@ jobs:
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
-        run: cmake --build build --config Release --target weft_smoke weft_smoke_plugin_VST3 --verbose
+        run: cmake --build build --config Release --target weft_smoke weft_smoke_plugin_VST3 weft-render --verbose
 
       - name: Build (Linux / macOS)
         if: runner.os != 'Windows'
-        run: cmake --build build --target weft_smoke weft_smoke_plugin_VST3 -v
+        run: cmake --build build --target weft_smoke weft_smoke_plugin_VST3 weft-render -v
 
       - name: Locate built VST3 plugin
         id: loc
@@ -130,3 +130,80 @@ jobs:
           assert md["stepCount"] == 3 and md["listItems"] == [], md
           print("SMOKE OK")
           EOF
+
+      - name: Render (offline audio->audio; verify config params reach the plugin)
+        shell: bash
+        run: |
+          # The renderer must run the VST3 through the offline path at the
+          # input file's sample rate, with the config's `params:` block pushed
+          # onto the live instance. We prove the latter with a GAIN RATIO:
+          # input is a constant 0.5 tone, the config sets DryMix=0.5 (a
+          # NON-default — the plugin default is 0.8), so the rendered output
+          # must be input * 0.5. If the params block were ever ignored, the
+          # default 0.8 gain would show through and the ratio would be 0.8.
+          render=$(find build -name 'weft-render' -o -name 'weft-render.exe' | head -n1)
+          [ -n "$render" ] && [ -x "$render" ] || { echo "::error::weft-render binary not found"; exit 1; }
+
+          # Deterministic input WAV (2048-frame stereo 44100 Hz 16-bit, constant
+          # 0.5) + a one-slot chain config with DryMix=0.5 pointing at the built
+          # VST3 bundle located by the 'loc' step.
+          python3 - "${{ steps.loc.outputs.path }}" <<'PYEOF'
+          import json, struct, sys
+          plugin = sys.argv[1]
+          RATE, CH, N, BITS = 44100, 2, 2048, 16
+          val = int(round(0.5 * 32768))            # 16384 -> 0.5 tone
+          data = b"".join(struct.pack("<h", val) for _ in range(N * CH))
+          byte_rate = RATE * CH * (BITS // 8)
+          with open("in.wav", "wb") as f:
+              f.write(b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVE")
+              f.write(b"fmt " + struct.pack("<I", 16))
+              f.write(struct.pack("<HHIIHH", 1, CH, RATE, byte_rate,
+                                   CH * (BITS // 8), BITS))
+              f.write(b"data" + struct.pack("<I", len(data)) + data)
+          cfg = {"sample_rate": RATE, "block_size": 512,
+                 "chain": [{"id": "gain", "plugin": plugin,
+                            "enabled": True, "params": {"DryMix": 0.5}}]}
+          with open("render_chain.json", "w") as f:
+              json.dump(cfg, f)
+          print("render config plugin =", plugin)
+          PYEOF
+
+          "$render" in.wav render_chain.json out.wav --bits 16 || { echo "::error::weft-render failed"; exit 1; }
+
+          # Verify: output is 2048 frames / 44100 Hz / stereo / 16-bit PCM, and
+          # the gain ratio out/in is 0.5 (== the configured DryMix).
+          python3 - <<'PYEOF'
+          import struct
+
+          def parse16(path):
+              raw = open(path, "rb").read()
+              assert raw[:4] == b"RIFF" and raw[8:12] == b"WAVE", raw[:12]
+              pos, fmt, data = 12, None, None
+              while pos + 8 <= len(raw):
+                  cid = raw[pos:pos + 4]
+                  size = struct.unpack("<I", raw[pos + 4:pos + 8])[0]
+                  body = raw[pos + 8:pos + 8 + size]
+                  if cid == b"fmt ":
+                      fmt = body
+                  elif cid == b"data":
+                      data = body
+                      break
+                  pos += 8 + size + (size & 1)
+              assert fmt is not None and data is not None, (path, "chunks")
+              ch   = struct.unpack("<H",  fmt[2:4])[0]
+              rate = struct.unpack("<I",  fmt[4:8])[0]
+              bits = struct.unpack("<H",  fmt[14:16])[0]
+              n = len(data) // 2
+              return ch, rate, bits, struct.unpack("<%dh" % n, data)
+
+          ich, irate, ibits, in_s  = parse16("in.wav")
+          och, orate, obits, out_s = parse16("out.wav")
+          assert (och, orate, obits) == (2, 44100, 16), (och, orate, obits)
+          assert len(out_s) // och == 2048, len(out_s) // och
+          in_mean  = sum(in_s)  / len(in_s)
+          out_mean = sum(out_s) / len(out_s)
+          gain = out_mean / in_mean
+          print(f"input mean {in_mean:.2f}  output mean {out_mean:.2f}  gain {gain:.4f}")
+          assert abs(gain - 0.5) < 0.01, gain   # 0.5 == configured DryMix
+          print("RENDER OK")
+          PYEOF

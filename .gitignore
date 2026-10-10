@@ -3,6 +3,7 @@ build/
 build_stale/
 build_stale_*/
 cmake-build-*/
+build-*/
 
 # object / binary artifacts
 *.o
