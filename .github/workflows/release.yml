@@ -9,6 +9,11 @@ on:
   push:
     tags: [ 'v*' ]
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to package (defaults to the tag on tag-triggered runs)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -80,11 +85,14 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          [ -n "$version" ] && [ "$version" != "${GITHUB_REF_NAME}" ] || { echo "::error::run from a v* tag"; exit 1; }
-          bin=build/weft-render
-          [ "$RUNNER_OS" = "Windows" ] && bin=build/Release/weft-render.exe
-          [ -f "$bin" ] || { echo "::error::weft-render binary not found at $bin"; exit 1; }
+          version="${{ inputs.version }}"
+          [ -n "$version" ] || version="${GITHUB_REF_NAME#v}"
+          [ -n "$version" ] || { echo "::error::no version: run from a v* tag or pass the version input"; exit 1; }
+          # weft-render lives under the host/ subdirectory's binary dir
+          # (build/host/Release on MSVC, build/host on Make/Ninja) — locate it.
+          bin=$(find build -name 'weft-render' -o -name 'weft-render.exe' | head -n1)
+          [ -n "$bin" ] && [ -f "$bin" ] || { echo "::error::weft-render binary not found under build/"; exit 1; }
+          echo "Packaging $bin"
           pkg="weft-${version}-${{ matrix.arch }}"
           mkdir -p "$pkg"
           cp "$bin" "$pkg/"
@@ -118,6 +126,6 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          name: "Weft v${{ github.ref_name }}"
+          name: "Weft v${{ inputs.version || github.ref_name }}"
           files: dist/*
           generate_release_notes: true
