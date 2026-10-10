@@ -99,7 +99,8 @@ jobs:
           cp README.md LICENSE "$pkg/"
           cp -r examples "$pkg/"
           if [ "${{ matrix.fmt }}" = "zip" ]; then
-            tar -a -cf "${pkg}.zip" "$pkg"
+            # NOTE: `tar -a -cf x.zip` produces a TAR, not a zip — use zip.
+            zip -rq "${pkg}.zip" "$pkg"
           else
             tar -czf "${pkg}.tar.gz" "$pkg"
           fi
@@ -126,6 +127,6 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          name: "Weft v${{ inputs.version || github.ref_name }}"
+          name: "Weft ${{ inputs.version != '' && format('v{0}', inputs.version) || github.ref_name }}"
           files: dist/*
           generate_release_notes: true
