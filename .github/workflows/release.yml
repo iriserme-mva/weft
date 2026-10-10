@@ -98,7 +98,7 @@ jobs:
           $pkg = "weft-$version-windows-x64"
           New-Item -ItemType Directory -Force $pkg | Out-Null
           Copy-Item $bin.FullName "$pkg/"
-          Copy-Item README.md LICENSE "$pkg/"
+          Copy-Item README.md, LICENSE -Destination "$pkg/"
           Copy-Item -Recurse examples "$pkg/"
           Compress-Archive -Path $pkg -DestinationPath "${pkg}.zip"
           Get-ChildItem *.zip | Format-List Name, Length
